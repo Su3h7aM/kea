@@ -70,7 +70,16 @@ cmake --build build
 ./build/bin/kea                    # run (or QT_QPA_PLATFORM=offscreen ./build/bin/kea)
 ./build/bin/kea-resampler-test     # DSP unit tests
 ./build/bin/kea-committer-test     # TextCommitter unit tests (mock context)
+./build/bin/kea-controller-test    # DictationController state smoke (missing model → Error)
 ```
+
+### Runtime flow (Phase 3)
+
+1. `GlobalHotkey` (default Meta+Shift+V) via `KGlobalAccel::globalShortcutActiveChanged` for hold-to-talk.
+2. `DictationController` starts mic (`AudioRecorder`) and opens a parakeet stream on a **dedicated worker thread**.
+3. PCM blocks are queued to `ParakeetWorker::feedPcm`; finalized text is committed via `TextCommitter`.
+4. Hotkey release / tray Stop finalizes the stream and commits the tail.
+5. Settings (`QSettings` under `kea/kea`): model path, backend (CPU/Vulkan), hotkey.
 
 ### With the parakeet backends (fetches + builds parakeet.cpp + ggml, slow on first run)
 

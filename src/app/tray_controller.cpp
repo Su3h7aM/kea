@@ -23,8 +23,21 @@ TrayController::TrayController(QObject *parent)
                        QStringLiteral("Voice dictation"));
     m_item->setStandardActionsEnabled(false);
 
-    // Context menu (KF6 builds the tray menu via setContextMenu).
     m_menu = new QMenu;
+
+    m_startStopAction = m_menu->addAction(i18nc("@action:inmenu", "Start dictation"));
+    connect(m_startStopAction, &QAction::triggered, this, [this]() {
+        if (m_listening) {
+            Q_EMIT stopRequested();
+        } else {
+            Q_EMIT startRequested();
+        }
+    });
+
+    auto *cancelAction = m_menu->addAction(i18nc("@action:inmenu", "Cancel"));
+    connect(cancelAction, &QAction::triggered, this, &TrayController::cancelRequested);
+
+    m_menu->addSeparator();
 
     auto *settingsAction = m_menu->addAction(i18nc("@action:inmenu", "Settings"));
     connect(settingsAction, &QAction::triggered, this, &TrayController::showWindowRequested);
@@ -37,6 +50,15 @@ TrayController::TrayController(QObject *parent)
 
     m_item->setContextMenu(m_menu);
 
+    // Clicking the tray icon toggles start/stop as a hotkey fallback.
+    connect(m_item, &KStatusNotifierItem::activateRequested, this, [this](bool /*active*/, const QPoint &) {
+        if (m_listening) {
+            Q_EMIT stopRequested();
+        } else {
+            Q_EMIT startRequested();
+        }
+    });
+
     setStatusText(QStringLiteral("Idle"));
 }
 
@@ -47,8 +69,6 @@ TrayController::~TrayController()
 
 void TrayController::show()
 {
-    // KStatusNotifierItem registers itself on construction; nothing extra to do
-    // for Phase 0. The dictation state machine will drive statusText later.
 }
 
 void TrayController::setStatusText(const QString &text)
@@ -59,4 +79,27 @@ void TrayController::setStatusText(const QString &text)
     m_statusText = text;
     m_item->setToolTipSubTitle(text);
     Q_EMIT statusTextChanged();
+}
+
+void TrayController::setListening(bool listening)
+{
+    if (m_listening == listening) {
+        return;
+    }
+    m_listening = listening;
+    m_item->setIconByName(listening
+                               ? QStringLiteral("media-record")
+                               : QStringLiteral("preferences-desktop-locale"));
+    updateMenuLabels();
+    Q_EMIT listeningChanged();
+}
+
+void TrayController::updateMenuLabels()
+{
+    if (!m_startStopAction) {
+        return;
+    }
+    m_startStopAction->setText(m_listening
+                                   ? i18nc("@action:inmenu", "Stop dictation")
+                                   : i18nc("@action:inmenu", "Start dictation"));
 }

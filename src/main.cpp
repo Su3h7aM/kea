@@ -3,29 +3,33 @@
  * SPDX-License-Identifier: MIT
  *
  * Kea — entry point.
- *
- * Boots a Qt/Kirigami application, registers the i18n context, wires up the
- * system-tray controller and Wayland input-method text insertion, and loads
- * the QML module (org.kde.kea.Main).
  */
 #include <QApplication>
 #include <QIcon>
+#include <QMetaType>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QUrl>
+#include <QVector>
 
 #include <KAboutData>
 #include <KIconTheme>
 #include <KLocalizedContext>
 #include <KLocalizedString>
 
+#include "app/app_settings.h"
 #include "app/tray_controller.h"
+#include "controller/dictation_controller.h"
+#include "hotkey/global_hotkey.h"
 #include "insert/input_method.h"
 #include "insert/text_committer.h"
 
 int main(int argc, char *argv[])
 {
+    // Queued cross-thread PCM delivery (main → worker).
+    qRegisterMetaType<QVector<float>>("QVector<float>");
+
     KIconTheme::initTheme();
 
     QApplication app(argc, argv);
@@ -51,45 +55,74 @@ int main(int argc, char *argv[])
     KAboutData::setApplicationData(about);
     QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("preferences-desktop-locale")));
 
-    // System-tray presence.
+    kea::AppSettings settings;
     TrayController tray;
     tray.show();
 
-    // Wayland text insertion (input-method-v1). Binds the global if the
-    // compositor advertises it; on activate/deactivate the TextCommitter
-    // receives the live IInputContext. On non-Wayland platforms (or when
-    // another IME owns the seat) this stays inactive.
     kea::InputMethod inputMethod;
     kea::TextCommitter committer;
+    kea::GlobalHotkey hotkey;
+    hotkey.setSequence(settings.hotkey());
+
+    kea::DictationController dictation(&settings);
+    dictation.setTextCommitter(&committer);
+    dictation.setHotkey(&hotkey);
+
+    // Input-method context lifecycle → committer + tray status (when idle).
     QObject::connect(&inputMethod, &kea::InputMethod::contextChanged,
                      &committer, [&](kea::InputMethodContext *ctx) {
                          committer.setContext(ctx);
-                         if (ctx) {
-                             tray.setStatusText(QStringLiteral("Ready (text field focused)"));
-                         } else if (inputMethod.protocolAvailable()) {
-                             tray.setStatusText(QStringLiteral("Idle (focus a text field)"));
-                         } else {
-                             tray.setStatusText(QStringLiteral("Idle (input-method unavailable)"));
-                         }
                      });
+
+    // Dictation status drives the tray.
+    QObject::connect(&dictation, &kea::DictationController::statusTextChanged, &tray, [&]() {
+        tray.setStatusText(dictation.statusText());
+    });
+    QObject::connect(&dictation, &kea::DictationController::stateChanged, &tray, [&]() {
+        tray.setListening(dictation.isListening());
+    });
+
+    // Tray actions.
+    QObject::connect(&tray, &TrayController::startRequested, &dictation, &kea::DictationController::start);
+    QObject::connect(&tray, &TrayController::stopRequested, &dictation, &kea::DictationController::stop);
+    QObject::connect(&tray, &TrayController::cancelRequested, &dictation, &kea::DictationController::cancel);
+
+    // Settings → hotkey rebind.
+    QObject::connect(&settings, &kea::AppSettings::hotkeyChanged, &hotkey, [&]() {
+        hotkey.setSequence(settings.hotkey());
+    });
+
+    // Reflect input-method availability when not actively dictating.
     QObject::connect(&inputMethod, &QWaylandClientExtension::activeChanged, &tray, [&]() {
+        if (dictation.isListening()) {
+            return;
+        }
         if (inputMethod.isActive()) {
-            tray.setStatusText(QStringLiteral("Idle (focus a text field)"));
+            tray.setStatusText(QStringLiteral("Idle — hold hotkey to dictate"));
         } else {
             tray.setStatusText(QStringLiteral("Idle (input-method unavailable)"));
         }
     });
+    if (inputMethod.isActive()) {
+        tray.setStatusText(QStringLiteral("Idle — hold hotkey to dictate"));
+    }
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
     engine.rootContext()->setContextProperty(QStringLiteral("_tray"), &tray);
     engine.rootContext()->setContextProperty(QStringLiteral("_committer"), &committer);
     engine.rootContext()->setContextProperty(QStringLiteral("_inputMethod"), &inputMethod);
+    engine.rootContext()->setContextProperty(QStringLiteral("_dictation"), &dictation);
+    engine.rootContext()->setContextProperty(QStringLiteral("_settings"), &settings);
+    engine.rootContext()->setContextProperty(QStringLiteral("_hotkey"), &hotkey);
 
     engine.loadFromModule("org.kde.kea", "Main");
     if (engine.rootObjects().isEmpty()) {
         return -1;
     }
+
+    // Eager-load the model in the background so the first hotkey is fast.
+    dictation.loadModel();
 
     return app.exec();
 }

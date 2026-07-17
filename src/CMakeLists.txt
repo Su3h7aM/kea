@@ -10,6 +10,14 @@ target_sources(kea
         main.cpp
         app/tray_controller.h
         app/tray_controller.cpp
+        app/app_settings.h
+        app/app_settings.cpp
+        hotkey/global_hotkey.h
+        hotkey/global_hotkey.cpp
+        controller/parakeet_worker.h
+        controller/parakeet_worker.cpp
+        controller/dictation_controller.h
+        controller/dictation_controller.cpp
 )
 
 ecm_target_qml_sources(kea
@@ -103,6 +111,26 @@ qt_generate_wayland_protocol_client_sources(kea_insert
 add_executable(kea-committer-test committer_test.cpp)
 target_link_libraries(kea-committer-test PRIVATE Qt6::Core kea_insert)
 add_test(NAME committer COMMAND kea-committer-test)
+
+# Headless controller smoke (missing model → Error).
+add_executable(kea-controller-test controller_test.cpp
+    app/app_settings.cpp
+    controller/dictation_controller.cpp
+    controller/parakeet_worker.cpp
+    hotkey/global_hotkey.cpp
+)
+target_link_libraries(kea-controller-test
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Multimedia
+        KF6::GlobalAccel
+        KF6::I18n
+        kea_audio
+        kea_inference
+        kea_insert
+)
+add_test(NAME controller COMMAND kea-controller-test)
 
 # --- Inference static lib: the dlopen loader. ---
 # Compiles without the upstream header (opaque types declared in the .cpp), so

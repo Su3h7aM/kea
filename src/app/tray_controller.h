@@ -3,10 +3,6 @@
  * SPDX-License-Identifier: MIT
  *
  * TrayController — system-tray presence for Kea.
- *
- * Phase 0: a minimal KStatusNotifierItem that reflects app state (idle) and
- * exposes show/quit actions. It will grow to reflect the dictation state
- * machine (idle / listening / error) in later phases.
  */
 #pragma once
 
@@ -15,11 +11,13 @@
 
 class KStatusNotifierItem;
 class QMenu;
+class QAction;
 
 class TrayController : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
+    Q_PROPERTY(bool listening READ isListening WRITE setListening NOTIFY listeningChanged)
 
 public:
     explicit TrayController(QObject *parent = nullptr);
@@ -30,12 +28,23 @@ public:
     QString statusText() const { return m_statusText; }
     void setStatusText(const QString &text);
 
+    bool isListening() const { return m_listening; }
+    void setListening(bool listening);
+
 Q_SIGNALS:
     void statusTextChanged();
+    void listeningChanged();
     void showWindowRequested();
+    void startRequested();
+    void stopRequested();
+    void cancelRequested();
 
 private:
+    void updateMenuLabels();
+
     KStatusNotifierItem *m_item = nullptr;
     QMenu *m_menu = nullptr;
+    QAction *m_startStopAction = nullptr;
     QString m_statusText;
+    bool m_listening = false;
 };
