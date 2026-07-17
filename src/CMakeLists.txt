@@ -82,9 +82,10 @@ target_link_libraries(kea_audio
 )
 
 # --- Resampler unit test (headless, pure DSP). ---
+# enable_testing() lives in the top-level CMakeLists.txt so `ctest` works from
+# the build root regardless of which subdirectory happens to add the first test.
 add_executable(kea-resampler-test resampler_test.cpp)
 target_link_libraries(kea-resampler-test PRIVATE kea_dsp)
-enable_testing()
 add_test(NAME resampler COMMAND kea-resampler-test)
 
 # --- Text insertion: input-method-v1 client + serial-safe committer. ---
