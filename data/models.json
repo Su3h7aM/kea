@@ -16,7 +16,7 @@
       "filename": "parakeet_realtime_eou_120m-v1-q8_0.gguf",
       "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/realtime_eou_120m-v1-q8_0.gguf",
       "streaming": true,
-      "sizeHint": "~120MB quantized"
+      "sizeHint": "~176MB"
     }
   ],
   "notes": "Kea auto-selects streaming vs offline mode from the model. Offline (TDT) buffers audio until hotkey release; streaming feeds live."
