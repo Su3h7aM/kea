@@ -4,9 +4,8 @@
  *
  * Main — the Kea settings window shell.
  *
- * Phase 0: a Kirigami ApplicationWindow with a single landing page so the
- * window + tray wiring can be exercised. The real settings pages (hotkey,
- * model, device, backend) land in later phases.
+ * Phase 2: shows tray status + input-method availability so the insertion
+ * path can be exercised. Real settings pages land in later phases.
  */
 import QtQuick
 import QtQuick.Layouts
@@ -17,11 +16,9 @@ Kirigami.ApplicationWindow {
     id: root
 
     width: Kirigami.Units.gridUnit * 28
-    height: Kirigami.Units.gridUnit * 20
+    height: Kirigami.Units.gridUnit * 22
     title: i18nc("@title:window", "Kea")
 
-    // The tray exposes itself as `_tray`. Toggling the tray's "Settings" item
-    // raises this window; closing it keeps the process alive (tray-owned).
     Connections {
         target: _tray
         function onShowWindowRequested() {
@@ -49,8 +46,31 @@ Kirigami.ApplicationWindow {
             }
 
             Controls.Label {
+                Kirigami.FormData.label: i18nc("@label", "Input method")
+                text: {
+                    if (!_inputMethod)
+                        return i18nc("@info", "Unavailable")
+                    if (!_inputMethod.active)
+                        return i18nc("@info", "Not bound (need Wayland + free IME slot)")
+                    if (_committer && _committer.canCommit)
+                        return i18nc("@info", "Active — text field focused")
+                    return i18nc("@info", "Bound — focus a text field to activate")
+                }
+            }
+
+            Controls.Label {
                 Kirigami.FormData.label: i18nc("@label", "Version")
                 text: "0.1.0 (pre-alpha)"
+            }
+
+            Controls.Label {
+                Layout.columnSpan: 2
+                wrapMode: Text.WordWrap
+                text: i18nc("@info",
+                    "Kea uses the Wayland input-method protocol to insert text. " +
+                    "Only one input method can own the seat — disable fcitx5/IBus " +
+                    "if binding fails.")
+                opacity: 0.7
             }
         }
     }

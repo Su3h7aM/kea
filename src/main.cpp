@@ -5,7 +5,8 @@
  * Kea — entry point.
  *
  * Boots a Qt/Kirigami application, registers the i18n context, wires up the
- * system-tray controller, and loads the QML module (org.kde.kea.Main).
+ * system-tray controller and Wayland input-method text insertion, and loads
+ * the QML module (org.kde.kea.Main).
  */
 #include <QApplication>
 #include <QIcon>
@@ -20,6 +21,8 @@
 #include <KLocalizedString>
 
 #include "app/tray_controller.h"
+#include "insert/input_method.h"
+#include "insert/text_committer.h"
 
 int main(int argc, char *argv[])
 {
@@ -48,15 +51,40 @@ int main(int argc, char *argv[])
     KAboutData::setApplicationData(about);
     QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("preferences-desktop-locale")));
 
-    // System-tray presence. Owns its KStatusNotifierItem; shows the window on
-    // activate and quits the app from its menu. Registered as a context
-    // property so the QML side can reflect tray state and toggle visibility.
+    // System-tray presence.
     TrayController tray;
     tray.show();
+
+    // Wayland text insertion (input-method-v1). Binds the global if the
+    // compositor advertises it; on activate/deactivate the TextCommitter
+    // receives the live IInputContext. On non-Wayland platforms (or when
+    // another IME owns the seat) this stays inactive.
+    kea::InputMethod inputMethod;
+    kea::TextCommitter committer;
+    QObject::connect(&inputMethod, &kea::InputMethod::contextChanged,
+                     &committer, [&](kea::InputMethodContext *ctx) {
+                         committer.setContext(ctx);
+                         if (ctx) {
+                             tray.setStatusText(QStringLiteral("Ready (text field focused)"));
+                         } else if (inputMethod.protocolAvailable()) {
+                             tray.setStatusText(QStringLiteral("Idle (focus a text field)"));
+                         } else {
+                             tray.setStatusText(QStringLiteral("Idle (input-method unavailable)"));
+                         }
+                     });
+    QObject::connect(&inputMethod, &QWaylandClientExtension::activeChanged, &tray, [&]() {
+        if (inputMethod.isActive()) {
+            tray.setStatusText(QStringLiteral("Idle (focus a text field)"));
+        } else {
+            tray.setStatusText(QStringLiteral("Idle (input-method unavailable)"));
+        }
+    });
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
     engine.rootContext()->setContextProperty(QStringLiteral("_tray"), &tray);
+    engine.rootContext()->setContextProperty(QStringLiteral("_committer"), &committer);
+    engine.rootContext()->setContextProperty(QStringLiteral("_inputMethod"), &inputMethod);
 
     engine.loadFromModule("org.kde.kea", "Main");
     if (engine.rootObjects().isEmpty()) {

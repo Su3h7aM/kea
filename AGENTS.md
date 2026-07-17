@@ -14,8 +14,8 @@ transcribed text streams into the focused text field. Everything runs on-device.
   (EOU) detection.
 - **Inference backends:** CPU and Vulkan (two `libparakeet` variants, runtime-selected).
 - **Audio:** PipeWire, captured via Qt 6 Multimedia (`QAudioSource`).
-- **Text insertion:** the Wayland `input-method-v2` protocol (the only permission-free
-  way to commit text into arbitrary surfaces on Wayland).
+- **Text insertion:** the Wayland `input-method-unstable-v1` protocol (what KWin
+  implements; see `InputMethodV1Interface`). One input method per seat.
 - **Target:** KDE Plasma 6 / Wayland + PipeWire. X11 and PulseAudio-only systems are
   out of scope for v1.
 
@@ -67,7 +67,9 @@ via `dlopen`.
 ```
 cmake -B build -DKEA_BUILD_PARAKEET=OFF
 cmake --build build
-./build/bin/kea        # run (or QT_QPA_PLATFORM=offscreen ./build/bin/kea headless)
+./build/bin/kea                    # run (or QT_QPA_PLATFORM=offscreen ./build/bin/kea)
+./build/bin/kea-resampler-test     # DSP unit tests
+./build/bin/kea-committer-test     # TextCommitter unit tests (mock context)
 ```
 
 ### With the parakeet backends (fetches + builds parakeet.cpp + ggml, slow on first run)
@@ -100,9 +102,10 @@ The smoke test loads a backend and transcribes a WAV:
   session must run on the same worker thread. Never share a context across threads.
 - **One input method per Wayland seat.** Kea occupies that slot; it cannot coexist with
   an already-running IME (fcitx5/IBus). Detect and warn at startup.
-- **Wayland `commit()` requires the latest `done()` serial.** All input-method commits
-  are centralized; a mismatched serial silently drops text. Never commit without a
-  matching `done`.
+- **KWin uses `input_method_unstable_v1`, not v2.** All insertion code targets v1
+  (`commit_string(serial, text)` / `preedit_string`; serial comes from `commit_state`).
+- **All commits go through `TextCommitter`.** Never call the Wayland context directly
+  from the controller. Serial bookkeeping and skip-when-inactive live only there.
 - **Two `.so` variants share an identical C-API.** CPU and Vulkan libs are selected at
   runtime via `dlopen`. CPU must remain a working fallback when Vulkan is unavailable.
 

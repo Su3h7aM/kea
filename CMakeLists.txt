@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 project(kea
     VERSION 0.1.0
     DESCRIPTION "On-device, streaming voice dictation for KDE Plasma (Wayland)"
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 
 # --- KDE/Qt build plumbing ---
@@ -43,6 +43,11 @@ find_package(KF6 REQUIRED COMPONENTS
     GlobalAccel
     StatusNotifierItem
 )
+
+# Wayland protocol code generation (input-method-unstable-v1 for text insertion).
+find_package(Wayland REQUIRED COMPONENTS Client)
+find_package(WaylandScanner REQUIRED)
+find_package(Qt6WaylandScannerTools REQUIRED)
 
 # QtQuick Controls style: Breeze desktop style (matches Plasma).
 ecm_find_qmlmodule(org.kde.kirigami REQUIRED)

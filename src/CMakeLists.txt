@@ -34,6 +34,7 @@ target_link_libraries(kea
         KF6::StatusNotifierItem
         kea_audio
         kea_inference
+        kea_insert
 )
 
 install(TARGETS kea ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
@@ -70,6 +71,38 @@ add_executable(kea-resampler-test resampler_test.cpp)
 target_link_libraries(kea-resampler-test PRIVATE kea_dsp)
 enable_testing()
 add_test(NAME resampler COMMAND kea-resampler-test)
+
+# --- Text insertion: input-method-v1 client + serial-safe committer. ---
+# KWin implements input_method_unstable_v1 (not v2). Protocol XML is vendored
+# under data/protocols/; qtwaylandscanner generates the client wrappers.
+add_library(kea_insert STATIC
+    insert/input_context.h
+    insert/input_method.h
+    insert/input_method.cpp
+    insert/text_committer.h
+    insert/text_committer.cpp
+)
+target_include_directories(kea_insert PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(kea_insert
+    PUBLIC
+        Qt6::Core
+        Qt6::Gui
+        Qt6::WaylandClient
+    PRIVATE
+        Wayland::Client
+)
+# NO_INCLUDE_CORE_ONLY: this protocol references wl_keyboard (grab_keyboard),
+# which needs the full wayland-client core headers, not the core-only stub.
+qt_generate_wayland_protocol_client_sources(kea_insert
+    NO_INCLUDE_CORE_ONLY
+    FILES
+        ${CMAKE_SOURCE_DIR}/data/protocols/input-method-unstable-v1.xml
+)
+
+# Headless unit test for TextCommitter (mock IInputContext, no compositor).
+add_executable(kea-committer-test committer_test.cpp)
+target_link_libraries(kea-committer-test PRIVATE Qt6::Core kea_insert)
+add_test(NAME committer COMMAND kea-committer-test)
 
 # --- Inference static lib: the dlopen loader. ---
 # Compiles without the upstream header (opaque types declared in the .cpp), so
