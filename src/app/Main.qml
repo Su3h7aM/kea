@@ -263,7 +263,7 @@ Kirigami.ApplicationWindow {
                     Layout.fillWidth: true
                     onEditingFinished: {
                         if (_settings)
-                            _settings.hotkeyString = text
+                            _settings.hotkey = text
                     }
                     // Refresh display when the hotkey changes programmatically.
                     Connections {
