@@ -16,9 +16,9 @@ TrayController::TrayController(QObject *parent)
     , m_item(new KStatusNotifierItem(this))
 {
     m_item->setTitle(QStringLiteral("Kea"));
-    m_item->setIconByName(QStringLiteral("preferences-desktop-locale"));
+    m_item->setIconByName(QStringLiteral("audio-input-microphone"));
     m_item->setStatus(KStatusNotifierItem::Active);
-    m_item->setToolTip(QStringLiteral("preferences-desktop-locale"),
+    m_item->setToolTip(QStringLiteral("audio-input-microphone"),
                        QStringLiteral("Kea"),
                        QStringLiteral("Voice dictation"));
     m_item->setStandardActionsEnabled(false);

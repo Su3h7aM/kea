@@ -21,6 +21,10 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# So `ctest` works from the build root regardless of which subdirectory adds
+# the first test (was previously called from inside src/CMakeLists.txt).
+enable_testing()
+
 # --- Qt6 ---
 find_package(Qt6 6.6 REQUIRED COMPONENTS
     Core
@@ -57,7 +61,11 @@ ecm_find_qmlmodule(org.kde.kirigami REQUIRED)
 # Controlled so the GUI can build independently of the heavy ASR build.
 option(KEA_BUILD_PARAKEET "Fetch and build parakeet.cpp (CPU + Vulkan variants) at build time" ON)
 set(KEA_PARAKEET_GIT_REPOSITORY "https://github.com/mudler/parakeet.cpp" CACHE STRING "parakeet.cpp git source")
-set(KEA_PARAKEET_GIT_TAG "master" CACHE STRING "parakeet.cpp git ref to fetch")
+# Pinned to a known-good commit rather than a floating branch: "master" made
+# every from-scratch build non-reproducible and liable to break without any
+# change on Kea's side. Bump deliberately (and re-test) when picking up
+# upstream changes.
+set(KEA_PARAKEET_GIT_TAG "1da853421de9710cbe894a0110711de5a0516486" CACHE STRING "parakeet.cpp git ref to fetch")
 
 add_subdirectory(src)
 

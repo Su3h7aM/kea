@@ -5,7 +5,7 @@
       "name": "Parakeet TDT 0.6B v3 (Q8_0)",
       "description": "Offline multilingual TDT model (25 European languages). Used with push-to-talk: record while held, transcribe on release.",
       "filename": "tdt-0.6b-v3-q8_0.gguf",
-      "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf",
+      "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v3-q8_0.gguf",
       "streaming": false,
       "sizeHint": "~900MB"
     },
@@ -13,8 +13,8 @@
       "id": "parakeet-realtime-eou-120m-q8",
       "name": "Parakeet Realtime EOU 120M (Q8_0)",
       "description": "Cache-aware streaming model with end-of-utterance detection. Live partial text while speaking.",
-      "filename": "parakeet_realtime_eou_120m-q8_0.gguf",
-      "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/parakeet_realtime_eou_120m-v1-q8_0.gguf",
+      "filename": "parakeet_realtime_eou_120m-v1-q8_0.gguf",
+      "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/realtime_eou_120m-v1-q8_0.gguf",
       "streaming": true,
       "sizeHint": "~120MB quantized"
     }

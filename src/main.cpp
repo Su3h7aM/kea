@@ -34,7 +34,7 @@
 // (see AppSettings::defaultModelPath).
 static const char kDefaultModelUrl[] =
     "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/"
-    "parakeet-tdt-0.6b-v3-q8_0.gguf";
+    "tdt-0.6b-v3-q8_0.gguf";
 static const char kDefaultModelFilename[] = "tdt-0.6b-v3-q8_0.gguf";
 
 int main(int argc, char *argv[])
@@ -68,7 +68,7 @@ int main(int argc, char *argv[])
     about.setHomepage(QStringLiteral("https://github.com/Su3h7aM/kea"));
     about.setBugAddress("https://github.com/Su3h7aM/kea/issues");
     KAboutData::setApplicationData(about);
-    QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("preferences-desktop-locale")));
+    QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("audio-input-microphone")));
 
     qCInfo(keaLog) << "Kea" << about.version() << "starting";
 
