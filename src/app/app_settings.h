@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: 2026 Kea contributors
  * SPDX-License-Identifier: MIT
  *
- * Lightweight settings persisted via QSettings (org.kde.kea).
+ * Lightweight settings persisted via QSettings (kea/kea, see load()/save()).
  */
 #pragma once
 

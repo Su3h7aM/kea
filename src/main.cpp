@@ -47,10 +47,11 @@ int main(int argc, char *argv[])
     KLocalizedString::setApplicationDomain("kea");
 
     // Settings live under ~/.config/kea/kea.conf (must match AppSettings / QSettings).
+    // Kea is a native-feeling KDE Plasma app but is not part of KDE itself, so the
+    // app ID/domain intentionally avoid the org.kde.* namespace (see AGENTS.md).
     QApplication::setOrganizationName(QStringLiteral("kea"));
-    QApplication::setOrganizationDomain(QStringLiteral("kde.org"));
     QApplication::setApplicationName(QStringLiteral("kea"));
-    QApplication::setDesktopFileName(QStringLiteral("org.kde.kea"));
+    QApplication::setDesktopFileName(QStringLiteral("io.github.su3h7am.kea"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) {
@@ -145,9 +146,9 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("_defaultModelFilename"),
                                              QString::fromUtf8(kDefaultModelFilename));
 
-    engine.loadFromModule("org.kde.kea", "Main");
+    engine.loadFromModule("io.github.su3h7am.kea", "Main");
     if (engine.rootObjects().isEmpty()) {
-        qCCritical(keaLog) << "failed to load QML module org.kde.kea";
+        qCCritical(keaLog) << "failed to load QML module io.github.su3h7am.kea";
         return -1;
     }
 

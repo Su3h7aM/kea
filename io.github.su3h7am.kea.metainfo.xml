@@ -4,12 +4,12 @@
   SPDX-License-Identifier: MIT
 -->
 <component type="desktop-application">
-  <id>org.kde.kea</id>
+  <id>io.github.su3h7am.kea</id>
   <name>Kea</name>
   <summary>On-device voice dictation for KDE Plasma</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
-  <developer id="org.kde.kea">
+  <developer id="io.github.su3h7am">
     <name>Kea contributors</name>
   </developer>
   <description>
@@ -27,7 +27,7 @@
   <url type="homepage">https://github.com/Su3h7aM/kea</url>
   <url type="bugtracker">https://github.com/Su3h7aM/kea/issues</url>
   <url type="vcs-browser">https://github.com/Su3h7aM/kea</url>
-  <launchable type="desktop-id">org.kde.kea.desktop</launchable>
+  <launchable type="desktop-id">io.github.su3h7am.kea.desktop</launchable>
   <provides>
     <binary>kea</binary>
   </provides>
