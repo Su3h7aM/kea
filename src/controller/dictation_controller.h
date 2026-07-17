@@ -111,6 +111,9 @@ private:
     void beginListening();
     void stopCaptureOnly();
     bool isBusy() const;
+    /// If unloadModel() was deferred because a Draining session was still in
+    /// flight, actually unload now that the session has resolved.
+    void maybeUnloadAfterDrain();
 
     AppSettings *m_settings = nullptr;
     TextCommitter *m_committer = nullptr;
@@ -129,6 +132,9 @@ private:
     bool m_startAfterLoad = false;
     bool m_stopWhenStarted = false; ///< release arrived while still Starting
     bool m_offlineMode = false;
+    /// unloadModel() was called while Draining (a transcription is still
+    /// running on the worker thread); actually unload once it resolves.
+    bool m_unloadAfterDrain = false;
     ActivationMode m_activationMode = ActivationMode::PushToTalk;
 };
 

@@ -88,6 +88,11 @@ void ModelDownloader::download(const QString &url, const QString &destPath)
         const auto err = m_reply->error();
         if (err != QNetworkReply::NoError) {
             const QString msg = m_reply->errorString();
+            // QNetworkReply::abort() emits finished() synchronously on some
+            // backends, so a user-requested cancel() lands here as an
+            // OperationCanceledError, not a real failure. Report it as
+            // "Cancelled", not "Failed", and skip failed()/lastError.
+            const bool wasCancelling = m_cancelling;
             cleanupReply();
             if (m_file) {
                 m_file->close();
@@ -96,9 +101,13 @@ void ModelDownloader::download(const QString &url, const QString &destPath)
                 m_file = nullptr;
             }
             setBusy(false);
-            setStatus(QStringLiteral("Failed"));
-            setError(msg);
-            Q_EMIT failed(msg);
+            if (wasCancelling) {
+                setStatus(QStringLiteral("Cancelled"));
+            } else {
+                setStatus(QStringLiteral("Failed"));
+                setError(msg);
+                Q_EMIT failed(msg);
+            }
             return;
         }
         if (m_file) {
@@ -128,6 +137,9 @@ void ModelDownloader::download(const QString &url, const QString &destPath)
 void ModelDownloader::cancel()
 {
     if (m_reply) {
+        // Set before abort(): some backends emit finished() synchronously from
+        // inside abort(), and the finished-lambda above needs to see this.
+        m_cancelling = true;
         m_reply->abort();
     }
     cleanupReply();
@@ -141,6 +153,7 @@ void ModelDownloader::cancel()
         setBusy(false);
         setStatus(QStringLiteral("Cancelled"));
     }
+    m_cancelling = false;
 }
 
 void ModelDownloader::cleanupReply()

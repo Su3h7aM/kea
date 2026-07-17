@@ -59,6 +59,9 @@ private:
     QNetworkReply *m_reply = nullptr;
     QFile *m_file = nullptr;
     bool m_busy = false;
+    bool m_cancelling = false; ///< set by cancel() before abort(); abort() emits
+                               ///< finished() synchronously, so the error branch
+                               ///< needs to know this was requested, not a real failure.
     qreal m_progress = 0.0;
     QString m_statusText;
     QString m_lastError;

@@ -187,6 +187,17 @@ void DictationController::loadModel()
 
 void DictationController::unloadModel()
 {
+    if (m_state == State::Draining) {
+        // A transcription is still in flight on the worker thread (offline
+        // transcribe_pcm or stream_finalize). Unloading the backend now would
+        // race with that call and drop the result. Defer: onSessionFinished()
+        // re-invokes unloadModel() once the session actually resolves.
+        m_unloadAfterDrain = true;
+        setStatus(QStringLiteral("Finishing… (will unload when done)"));
+        qCInfo(keaLog) << "unloadModel deferred until Draining session resolves";
+        return;
+    }
+
     // Don't unload while actively dictating.
     if (m_state == State::Listening || m_state == State::Starting) {
         cancel();
@@ -198,6 +209,15 @@ void DictationController::unloadModel()
     setStatus(QStringLiteral("Idle"));
     qCInfo(keaLog) << "unloading model";
     QMetaObject::invokeMethod(m_worker, "unloadBackend", Qt::QueuedConnection);
+}
+
+void DictationController::maybeUnloadAfterDrain()
+{
+    if (!m_unloadAfterDrain) {
+        return;
+    }
+    m_unloadAfterDrain = false;
+    unloadModel();
 }
 
 void DictationController::onModelReady(bool ok, const QString &error)
@@ -368,6 +388,7 @@ void DictationController::onSessionFinished(const QString &text, const QString &
 
     if (!error.isEmpty() && text.isEmpty()) {
         setError(error);
+        maybeUnloadAfterDrain();
         return;
     }
 
@@ -399,6 +420,8 @@ void DictationController::onSessionFinished(const QString &text, const QString &
             m_committer->clearPreedit();
         }
     }
+
+    maybeUnloadAfterDrain();
 }
 
 void DictationController::cancel()
@@ -420,6 +443,7 @@ void DictationController::cancel()
 void DictationController::onSessionCancelled()
 {
     stopCaptureOnly();
+    maybeUnloadAfterDrain();
     if (m_state != State::Idle && m_state != State::Error) {
         setState(State::Idle);
         setStatus(QStringLiteral("Idle"));
