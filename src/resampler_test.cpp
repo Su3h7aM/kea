@@ -75,6 +75,38 @@ int main()
               "last output sample equals the last (unclipped) input sample");
     }
 
+    std::printf("[resampler] resampleLinearF32 direct: minimal downsample boundary (n=3, step=2.0)\n");
+    {
+        // Smallest case that reproduces the OOB pattern directly on
+        // resampleLinearF32 (not via the int16 wrapper): n=3, step=2.0 ->
+        // nOut=2, and the last output's j+1 lands exactly on n=3.
+        const float in[] = {10.0f, 20.0f, 30.0f};
+        auto out = resampleLinearF32(in, 3, /*inRate=*/2, /*outRate=*/1);
+        check(out.size() == 2, "n=3 step=2.0 -> 2 output samples");
+        check(out.size() == 2 && approx(out[0], 10.0f), "out[0] == in[0]");
+        check(out.size() == 2 && approx(out[1], 30.0f),
+              "out[1] == in[2] (clamped b, no OOB read of in[3])");
+    }
+
+    std::printf("[resampler] resampleLinearF32 direct: upsample boundary (n=5, step=0.5)\n");
+    {
+        // Upsampling (outRate > inRate) can also land the last output
+        // exactly on the final input sample: n=5, step=0.5 -> nOut=9, and the
+        // 9th output's j+1 lands exactly on n=5.
+        const float in[] = {10.0f, 20.0f, 30.0f, 40.0f, 50.0f};
+        auto out = resampleLinearF32(in, 5, /*inRate=*/1, /*outRate=*/2);
+        const std::vector<float> expected = {10, 15, 20, 25, 30, 35, 40, 45, 50};
+        check(out.size() == expected.size(), "n=5 step=0.5 -> 9 output samples");
+        bool match = out.size() == expected.size();
+        for (std::size_t i = 0; match && i < expected.size(); ++i) {
+            if (!approx(out[i], expected[i])) {
+                std::printf("    mismatch at %zu: got %.6f want %.6f\n", i, out[i], expected[i]);
+                match = false;
+            }
+        }
+        check(match, "all interpolated values correct, including the boundary tail sample");
+    }
+
     std::printf("[resampler] exact round-trip (16k signal upsampled x3, back to 16k)\n");
     {
         // Original 16k signal: a low-frequency sine (220 Hz), 1 second.

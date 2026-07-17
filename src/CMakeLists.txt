@@ -160,6 +160,26 @@ target_compile_definitions(kea_inference PRIVATE
     KEA_PARAKEET_VULKAN_LIB="${KEA_PARAKEET_VULKAN_LIB}"
 )
 
+# --- Fake parakeet C-API shared library (test-only double for ParakeetBackend). ---
+# Mimics the upstream flat C-API surface so ParakeetBackend's dlopen loader
+# can be exercised without fetching/building the real (heavy,
+# network-dependent) parakeet.cpp. See inference/fake_parakeet_capi.cpp for
+# the subset of the upstream contract implemented by the test double.
+add_library(kea-fake-parakeet-capi SHARED
+    inference/fake_parakeet_capi.cpp
+)
+set_target_properties(kea-fake-parakeet-capi PROPERTIES
+    CXX_VISIBILITY_PRESET default
+)
+
+# Headless unit test for ParakeetBackend's loader/loadModel error handling.
+add_executable(kea-parakeet-backend-test parakeet_backend_test.cpp)
+target_link_libraries(kea-parakeet-backend-test PRIVATE Qt6::Core kea_inference)
+add_dependencies(kea-parakeet-backend-test kea-fake-parakeet-capi)
+target_compile_definitions(kea-parakeet-backend-test PRIVATE
+    KEA_FAKE_PARAKEET_LIB="$<TARGET_FILE:kea-fake-parakeet-capi>")
+add_test(NAME parakeet_backend COMMAND kea-parakeet-backend-test)
+
 # --- Phase 0 smoke test: load a backend, transcribe a WAV. ---
 # Only when the parakeet backends are actually built (it needs the .so files).
 if(KEA_BUILD_PARAKEET)
