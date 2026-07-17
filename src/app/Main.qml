@@ -3,6 +3,13 @@
  * SPDX-License-Identifier: MIT
  *
  * Main — Kea settings, readiness, onboarding, and live dictation status.
+ *
+ * Workflow:
+ *   1. Set model path + backend (editable when model is NOT loaded).
+ *   2. Click Start → loads the model, locks settings, enables PTT.
+ *   3. Hold the hotkey to dictate; release to commit.
+ *   4. Click Stop → unloads the model, unlocks settings so you can change
+ *      the backend or model file.
  */
 import QtQuick
 import QtQuick.Layouts
@@ -42,23 +49,21 @@ Kirigami.ApplicationWindow {
 
         actions: [
             Kirigami.Action {
-                text: _dictation && _dictation.listening
+                // Start = load model + become ready; Stop = unload model.
+                text: _dictation && _dictation.modelLoaded
                       ? i18nc("@action", "Stop")
                       : i18nc("@action", "Start")
-                icon.name: _dictation && _dictation.listening ? "media-playback-stop" : "media-record"
-                enabled: _readiness ? (_readiness.modelReady || (_dictation && _dictation.listening)) : true
+                icon.name: _dictation && _dictation.modelLoaded
+                           ? "media-playback-stop"
+                           : "media-playback-start"
+                enabled: _dictation && !_dictation.canConfigure ? true   // Stop always works when loaded
+                         : (_readiness && _readiness.modelReady)          // Start needs a model file
                 onTriggered: {
-                    if (_dictation.listening)
-                        _dictation.stop()
+                    if (_dictation.modelLoaded)
+                        _dictation.unloadModel()
                     else
-                        _dictation.start()
+                        _dictation.loadModel()
                 }
-            },
-            Kirigami.Action {
-                text: i18nc("@action", "Cancel")
-                icon.name: "dialog-cancel"
-                enabled: _dictation && _dictation.state !== 0
-                onTriggered: _dictation.cancel()
             }
         ]
 
@@ -176,7 +181,7 @@ Kirigami.ApplicationWindow {
 
             Kirigami.Separator { Layout.fillWidth: true }
 
-            // --- Settings ---
+            // --- Settings (disabled while the model is loaded) ---
             Kirigami.Heading {
                 text: i18nc("@title:group", "Settings")
                 level: 2
@@ -184,6 +189,7 @@ Kirigami.ApplicationWindow {
 
             Kirigami.FormLayout {
                 Layout.fillWidth: true
+                enabled: _dictation ? _dictation.canConfigure : true
 
                 Controls.TextField {
                     id: modelField
@@ -203,17 +209,6 @@ Kirigami.ApplicationWindow {
                     onActivated: (index) => {
                         if (_settings)
                             _settings.backend = index
-                    }
-                }
-
-                Controls.Button {
-                    text: i18nc("@action:button", "Reload model")
-                    enabled: _downloader ? !_downloader.busy : true
-                    onClicked: {
-                        if (_settings)
-                            _settings.modelPath = modelField.text
-                        if (_dictation)
-                            _dictation.loadModel()
                     }
                 }
 
@@ -261,9 +256,11 @@ Kirigami.ApplicationWindow {
                 wrapMode: Text.WordWrap
                 opacity: 0.7
                 text: i18nc("@info",
-                    "Hold the global hotkey (default Meta+Ctrl+X) while a text field " +
-                    "is focused to dictate. Release to commit.\n\n" +
-                    "Set the model path in Settings, or export KEA_MODEL=/path/to/model.gguf. " +
+                    "Click Start to load the model, then hold the global hotkey " +
+                    "(default Meta+Ctrl+X) while a text field is focused to dictate. " +
+                    "Release to commit.\n\n" +
+                    "Click Stop to unload the model and change the backend or model file.\n\n" +
+                    "Set the model path above, or export KEA_MODEL=/path/to/model.gguf. " +
                     "Offline models (e.g. TDT) buffer audio until release; streaming EOU " +
                     "models insert text live.\n\n" +
                     "Only one Wayland input method can own the seat — disable fcitx5/IBus if binding fails.")
@@ -278,8 +275,6 @@ Kirigami.ApplicationWindow {
                 _settings.modelPath = localPath
                 modelField.text = localPath
             }
-            if (_dictation)
-                _dictation.loadModel()
         }
     }
 }

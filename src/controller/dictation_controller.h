@@ -37,6 +37,7 @@ class DictationController : public QObject
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(bool listening READ isListening NOTIFY stateChanged)
     Q_PROPERTY(bool modelLoaded READ isModelLoaded NOTIFY modelLoadedChanged)
+    Q_PROPERTY(bool canConfigure READ canConfigure NOTIFY modelLoadedChanged)
 
 public:
     enum class State {
@@ -66,9 +67,13 @@ public:
         return m_state == State::Listening || m_state == State::Starting;
     }
     bool isModelLoaded() const { return m_modelLoaded; }
+    /// True when the model is NOT loaded — settings (model path, backend) are
+    /// editable. False once Start loads the model; true again after Stop.
+    bool canConfigure() const { return !m_modelLoaded && !m_modelLoadPending; }
 
 public Q_SLOTS:
     void loadModel();
+    void unloadModel();
     void start();
     void stop();
     void cancel();
@@ -85,6 +90,7 @@ private Q_SLOTS:
     void onPcmBlock(const QList<float> &samples);
     void onLevel(float level);
     void onModelReady(bool ok, const QString &error);
+    void onModelUnloaded();
     void onSessionStarted(bool ok, const QString &error, bool offlineMode);
     void onTextFinalized(const QString &text, int eouMask);
     void onSessionFinished(const QString &text, const QString &error);

@@ -51,6 +51,17 @@ void ParakeetWorker::loadBackend(int device, const QString &modelPath)
     Q_EMIT modelReady(true, QString());
 }
 
+void ParakeetWorker::unloadBackend()
+{
+    m_backend.unload();
+    m_modelOk = false;
+    m_sessionActive = false;
+    m_offlineMode = false;
+    m_pcmBuffer.clear();
+    qCInfo(keaLog) << "backend unloaded";
+    Q_EMIT modelUnloaded();
+}
+
 void ParakeetWorker::beginSession()
 {
     if (!m_modelOk) {

@@ -31,6 +31,7 @@ public:
 
 public Q_SLOTS:
     void loadBackend(int device /*0=cpu,1=vulkan*/, const QString &modelPath);
+    void unloadBackend();
     /// Prefer streaming; if the model is offline-only, buffer PCM instead.
     void beginSession();
     void feedPcm(const QList<float> &samples);
@@ -39,6 +40,7 @@ public Q_SLOTS:
 
 Q_SIGNALS:
     void modelReady(bool ok, const QString &error);
+    void modelUnloaded();
     /// ok, error, offlineMode (true = buffer+batch; false = live stream)
     void sessionStarted(bool ok, const QString &error, bool offlineMode);
     void textFinalized(const QString &text, int eouMask);

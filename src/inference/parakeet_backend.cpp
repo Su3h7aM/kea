@@ -6,6 +6,9 @@
 
 #include <dlfcn.h>
 
+#include <cstdlib>
+#include <exception>
+
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDir>
@@ -145,6 +148,13 @@ void ParakeetBackend::unload()
     if (m_handle) {
         dlclose(m_handle);
         m_handle = nullptr;
+        // ggml installs a process-global std::terminate handler via its static
+        // initializer (ggml_uncaught_exception). After dlclose, that handler
+        // pointer is stale — it points to unmapped code. Reset to std::abort so
+        // (a) a stray exception doesn't jump into unmapped memory, and (b) the
+        // next variant's static initializer doesn't trip its own
+        // GGML_ASSERT(prev != ggml_uncaught_exception).
+        std::set_terminate(std::abort);
     }
     // Reset all symbol pointers so a stale fn pointer can't be called after
     // the backing library is unloaded.

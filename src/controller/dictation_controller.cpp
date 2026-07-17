@@ -38,6 +38,8 @@ DictationController::DictationController(AppSettings *settings, QObject *parent)
 
     connect(m_worker, &ParakeetWorker::modelReady,
             this, &DictationController::onModelReady);
+    connect(m_worker, &ParakeetWorker::modelUnloaded,
+            this, &DictationController::onModelUnloaded);
     connect(m_worker, &ParakeetWorker::sessionStarted,
             this, &DictationController::onSessionStarted);
     connect(m_worker, &ParakeetWorker::textFinalized,
@@ -157,6 +159,21 @@ void DictationController::loadModel()
                               Q_ARG(QString, m_settings->modelPath()));
 }
 
+void DictationController::unloadModel()
+{
+    // Don't unload while actively dictating.
+    if (m_state == State::Listening || m_state == State::Starting) {
+        cancel();
+    }
+    m_modelLoaded = false;
+    m_modelLoadPending = false;
+    Q_EMIT modelLoadedChanged();
+    setState(State::Idle);
+    setStatus(QStringLiteral("Idle"));
+    qCInfo(keaLog) << "unloading model";
+    QMetaObject::invokeMethod(m_worker, "unloadBackend", Qt::QueuedConnection);
+}
+
 void DictationController::onModelReady(bool ok, const QString &error)
 {
     m_modelLoadPending = false;
@@ -170,10 +187,20 @@ void DictationController::onModelReady(bool ok, const QString &error)
     m_lastError.clear();
     Q_EMIT lastErrorChanged();
     setState(State::Idle);
-    setStatus(QStringLiteral("Model ready"));
+    setStatus(QStringLiteral("Ready — hold hotkey to dictate"));
     if (m_startAfterLoad) {
         m_startAfterLoad = false;
         beginListening();
+    }
+}
+
+void DictationController::onModelUnloaded()
+{
+    // Worker confirmed the backend is torn down. State already set by
+    // unloadModel(); this just ensures consistency if called from elsewhere.
+    if (m_state == State::LoadingModel || m_state == State::Error) {
+        setState(State::Idle);
+        setStatus(QStringLiteral("Idle"));
     }
 }
 
