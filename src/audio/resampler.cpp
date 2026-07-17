@@ -48,9 +48,12 @@ std::vector<float> resampleLinearF32(const float *in, std::size_t n,
     for (std::size_t i = 0; i < nOut; ++i) {
         const auto j = static_cast<std::size_t>(pos);
         const double frac = pos - static_cast<double>(j);
-        // j and j+1 are always < n here because nOut is bounded by (n-1)/step.
+        // j is always < n here because nOut is bounded by (n-1)/step, but j+1
+        // can land exactly on n when pos rounds to the last input sample
+        // (e.g. step is a whole number and n-1 is a multiple of it) — guard
+        // against reading one element past the end.
         const float a = in[j];
-        const float b = in[j + 1];
+        const float b = (j + 1 < n) ? in[j + 1] : a;
         out.push_back(static_cast<float>(a + (b - a) * frac));
         pos += step;
     }
