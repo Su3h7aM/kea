@@ -84,6 +84,8 @@ ParakeetBackend::ParakeetBackend()
 ParakeetBackend::~ParakeetBackend()
 {
     unload();
+    delete m_ctx;
+    m_ctx = nullptr;
 }
 
 QString ParakeetBackend::libraryPath(ParakeetDevice device)
@@ -235,8 +237,10 @@ bool ParakeetBackend::loadModel(const QString &ggufPath)
     }
     m_ctx->ctx = m_sym->capi_load(ggufPath.toUtf8().constData());
     if (!m_ctx->ctx) {
-        setError(QStringLiteral("parakeet_capi_load failed for %1: %2")
-                     .arg(ggufPath, QString::fromUtf8(m_sym->capi_last_error(nullptr))));
+        // No live context to query here (capi_load itself failed), and
+        // capi_last_error's contract for a null/no context isn't guaranteed by
+        // the upstream C-API, so don't call it — just report the path.
+        setError(QStringLiteral("parakeet_capi_load failed for %1").arg(ggufPath));
         return false;
     }
     return true;

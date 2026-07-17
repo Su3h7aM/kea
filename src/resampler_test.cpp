@@ -60,6 +60,21 @@ int main()
         check(out.size() == 16000, "48000 -> 16000 samples (floor((48000-1)/3)+1)");
     }
 
+    std::printf("[resampler] no out-of-bounds read when last output sample lands exactly on the final input sample\n");
+    {
+        // N = 48001: with step=3.0 exactly, the last output position is
+        // pos = 16000*3 = 48000 = N-1, so j = N-1 and j+1 == N — one past the
+        // end of the input. This used to read in[N] out of bounds (caught by
+        // ASan as a heap-buffer-overflow); the fix must clamp b to in[j] when
+        // j+1 >= n. Run this test under ASan/UBSan to verify no OOB read.
+        const std::size_t N = 48001;
+        std::vector<int16_t> in(N, 12345);
+        auto out = resampleTo16kMonoF32(in.data(), in.size(), 48000);
+        check(out.size() == 16001, "48001 -> 16001 samples");
+        check(!out.empty() && approx(out.back(), 12345.0f / 32768.0f, 1e-4f),
+              "last output sample equals the last (unclipped) input sample");
+    }
+
     std::printf("[resampler] exact round-trip (16k signal upsampled x3, back to 16k)\n");
     {
         // Original 16k signal: a low-frequency sine (220 Hz), 1 second.
