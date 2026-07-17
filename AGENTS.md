@@ -24,9 +24,19 @@ before making architectural changes.
 
 ## Status
 
-**Pre-alpha, design only.** No source has been written yet. The RFC defines the planned
-module layout (`src/audio`, `src/inference`, `src/insert`, `src/controller`, `src/app`,
-etc.); expect the tree to grow into that shape during Phase 0.
+**Pre-alpha (Phases 0–4 implemented).** Module layout:
+
+```
+src/app/          # tray, settings, readiness, model downloader, Main.qml
+src/audio/        # resampler, wav loader, QAudioSource recorder
+src/controller/   # DictationController + ParakeetWorker (QThread)
+src/hotkey/       # KGlobalAccel push-to-talk
+src/inference/    # dlopen parakeet backend (offline + streaming)
+src/insert/       # input-method-v1 + TextCommitter
+cmake/parakeet.cmake  # ExternalProject fetch of parakeet.cpp (CPU + Vulkan)
+data/protocols/   # wayland XML
+data/models.json  # default model catalog
+```
 
 ## Version control: Jujutsu (jj), colocated
 
@@ -80,6 +90,8 @@ cmake --build build
 3. PCM blocks are queued to `ParakeetWorker::feedPcm`; finalized text is committed via `TextCommitter`.
 4. Hotkey release / tray Stop finalizes the stream and commits the tail.
 5. Settings (`QSettings` under `kea/kea`): model path, backend (CPU/Vulkan), hotkey.
+   Model path default: `$KEA_MODEL` if set, else `~/.local/share/kea/models/tdt-0.6b-v3-q8_0.gguf`.
+   Offline models buffer until hotkey release; streaming models feed live.
 
 ### With the parakeet backends (fetches + builds parakeet.cpp + ggml, slow on first run)
 

@@ -4,6 +4,10 @@
  */
 #include "parakeet_worker.h"
 
+#include <vector>
+
+#include "logging.h"
+
 namespace kea {
 
 ParakeetWorker::ParakeetWorker(QObject *parent)
@@ -19,13 +23,15 @@ ParakeetWorker::~ParakeetWorker()
 void ParakeetWorker::loadBackend(int device, const QString &modelPath)
 {
     m_backend.streamEnd();
+    m_pcmBuffer.clear();
+    m_sessionActive = false;
+    m_offlineMode = false;
     m_modelOk = false;
 
     const ParakeetDevice dev =
         (device == 1) ? ParakeetDevice::Vulkan : ParakeetDevice::Cpu;
 
     if (!m_backend.load(dev)) {
-        // Fall back to CPU if Vulkan was requested and failed.
         if (dev == ParakeetDevice::Vulkan) {
             if (!m_backend.load(ParakeetDevice::Cpu)) {
                 Q_EMIT modelReady(false, m_backend.lastError());
@@ -41,30 +47,49 @@ void ParakeetWorker::loadBackend(int device, const QString &modelPath)
         return;
     }
     m_modelOk = true;
+    qCInfo(keaLog) << "model loaded:" << modelPath;
     Q_EMIT modelReady(true, QString());
 }
 
-void ParakeetWorker::beginStream()
+void ParakeetWorker::beginSession()
 {
     if (!m_modelOk) {
-        Q_EMIT streamStarted(false, QStringLiteral("model not loaded"));
+        Q_EMIT sessionStarted(false, QStringLiteral("model not loaded"), false);
         return;
     }
-    if (!m_backend.streamBegin()) {
-        Q_EMIT streamStarted(false, m_backend.lastError());
+    m_pcmBuffer.clear();
+    m_sessionActive = false;
+    m_offlineMode = false;
+
+    // Prefer streaming when the model supports it.
+    if (m_backend.streamBegin()) {
+        m_offlineMode = false;
+        m_sessionActive = true;
+        qCInfo(keaLog) << "session started (streaming)";
+        Q_EMIT sessionStarted(true, QString(), false);
         return;
     }
-    Q_EMIT streamStarted(true, QString());
+
+    // Offline models (TDT/CTC/RNNT) reject stream_begin — buffer + batch instead.
+    m_offlineMode = true;
+    m_sessionActive = true;
+    qCInfo(keaLog) << "session started (offline buffer mode)";
+    Q_EMIT sessionStarted(true, QString(), true);
 }
 
-void ParakeetWorker::feedPcm(const QVector<float> &samples)
+void ParakeetWorker::feedPcm(const QList<float> &samples)
 {
-    if (!m_backend.hasStream() || samples.isEmpty()) {
+    if (!m_sessionActive || samples.isEmpty()) {
         return;
     }
-    const StreamFeedResult r = m_backend.streamFeed(samples.constData(), samples.size());
+    if (m_offlineMode) {
+        m_pcmBuffer.append(samples);
+        return;
+    }
+    // Streaming path needs a contiguous buffer.
+    const std::vector<float> cont(samples.begin(), samples.end());
+    const StreamFeedResult r = m_backend.streamFeed(cont.data(), int(cont.size()));
     if (!r.ok) {
-        // Surface as an empty finalize-style error path on the next stop.
         return;
     }
     if (!r.text.isEmpty() || r.eouMask != 0) {
@@ -72,25 +97,49 @@ void ParakeetWorker::feedPcm(const QVector<float> &samples)
     }
 }
 
-void ParakeetWorker::finalizeStream()
+void ParakeetWorker::finalizeSession()
 {
-    if (!m_backend.hasStream()) {
-        Q_EMIT streamFinished(QString(), QStringLiteral("no active stream"));
+    if (!m_sessionActive) {
+        Q_EMIT sessionFinished(QString(), QStringLiteral("no active session"));
         return;
     }
+    m_sessionActive = false;
+
+    if (m_offlineMode) {
+        if (m_pcmBuffer.isEmpty()) {
+            m_pcmBuffer.clear();
+            Q_EMIT sessionFinished(QString(), QString());
+            return;
+        }
+        qCInfo(keaLog) << "offline transcribe" << m_pcmBuffer.size() << "samples @16k";
+        // QList may be non-contiguous in theory; copy to vector for C API.
+        const std::vector<float> cont(m_pcmBuffer.begin(), m_pcmBuffer.end());
+        m_pcmBuffer.clear();
+        const TranscriptionResult r =
+            m_backend.transcribePcm(cont.data(), int(cont.size()), 16000);
+        if (!r.ok) {
+            Q_EMIT sessionFinished(QString(), r.text);
+            return;
+        }
+        Q_EMIT sessionFinished(r.text, QString());
+        return;
+    }
+
     const StreamFeedResult r = m_backend.streamFinalize();
     m_backend.streamEnd();
     if (!r.ok) {
-        Q_EMIT streamFinished(QString(), r.error);
+        Q_EMIT sessionFinished(QString(), r.error);
         return;
     }
-    Q_EMIT streamFinished(r.text, QString());
+    Q_EMIT sessionFinished(r.text, QString());
 }
 
-void ParakeetWorker::cancelStream()
+void ParakeetWorker::cancelSession()
 {
+    m_sessionActive = false;
+    m_pcmBuffer.clear();
     m_backend.streamEnd();
-    Q_EMIT streamCancelled();
+    Q_EMIT sessionCancelled();
 }
 
 } // namespace kea

@@ -45,18 +45,13 @@ function(_kea_parakeet_add_variant name out_so_path)
         GIT_TAG              "${KEA_PARAKEET_GIT_TAG}"
         GIT_SHALLOW          TRUE
         GIT_SUBMODULES_RECURSE TRUE
+        # Upstream apply_ggml_patches.sh dirties the clone. Never re-run the
+        # git update step after the initial clone (avoids unstash failures).
+        UPDATE_COMMAND       ""
         SOURCE_DIR           "${_src}"
         BINARY_DIR           "${_bld}"
         CMAKE_GENERATOR      "${CMAKE_GENERATOR}"
-        CMAKE_ARGS
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-            -DCMAKE_CXX_STANDARD=17
-            -DPARAKEET_BUILD_TESTS=OFF
-            -DPARAKEET_BUILD_CLI=OFF
-            -DPARAKEET_BUILD_SERVER=OFF
-            -DPARAKEET_SHARED=ON
-            ${_vk_flag}
-        # Upstream has no install rules; the .so is in BINARY_DIR.
+        # Upstream has no install rules; the .so lands in BINARY_DIR.
         CONFIGURE_COMMAND ${CMAKE_COMMAND} -S "${_src}" -B "${_bld}"
                           -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
                           -DCMAKE_CXX_STANDARD=17

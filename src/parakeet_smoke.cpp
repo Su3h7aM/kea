@@ -14,7 +14,7 @@
 #include <QStringList>
 #include <iostream>
 
-#include "parakeet_backend.h"
+#include "inference/parakeet_backend.h"
 
 using namespace kea;
 

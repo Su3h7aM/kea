@@ -6,8 +6,11 @@
 
 #include <dlfcn.h>
 
+#include <QByteArray>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 
 // parakeet_capi.h is the upstream C-API header. We deliberately do NOT include
 // it here: that header only exists after the build-time fetch of parakeet.cpp
@@ -20,7 +23,28 @@ typedef struct parakeet_ctx parakeet_ctx;
 typedef struct parakeet_stream parakeet_stream;
 }
 
+#ifndef KEA_PARAKEET_CPU_LIB
+#define KEA_PARAKEET_CPU_LIB ""
+#endif
+#ifndef KEA_PARAKEET_VULKAN_LIB
+#define KEA_PARAKEET_VULKAN_LIB ""
+#endif
+
 namespace kea {
+
+namespace {
+
+QString firstExisting(const QStringList &candidates)
+{
+    for (const QString &p : candidates) {
+        if (!p.isEmpty() && QFileInfo::exists(p)) {
+            return p;
+        }
+    }
+    return {};
+}
+
+} // namespace
 
 // Mirrors the C-API symbols Kea depends on. The streaming symbols are resolved
 // lazily on the first streamBegin(), so a backend without a streaming model
@@ -30,6 +54,7 @@ struct ParakeetBackend::Symbols {
     parakeet_ctx *(*capi_load)(const char *);
     void (*capi_free)(parakeet_ctx *);
     char *(*capi_transcribe_path)(parakeet_ctx *, const char *, int);
+    char *(*capi_transcribe_pcm)(parakeet_ctx *, const float *, int, int, int);
     void (*capi_free_string)(char *);
     const char *(*capi_last_error)(parakeet_ctx *);
     // Streaming.
@@ -66,13 +91,52 @@ ParakeetBackend::~ParakeetBackend()
 
 QString ParakeetBackend::libraryPath(ParakeetDevice device)
 {
-    // Paths baked in by CMake (parakeet.cmake). Vulkan path is empty when
-    // the Vulkan variant was skipped at configure time.
-    switch (device) {
-    case ParakeetDevice::Cpu:
-        return QStringLiteral(KEA_PARAKEET_CPU_LIB);
-    case ParakeetDevice::Vulkan:
-        return QStringLiteral(KEA_PARAKEET_VULKAN_LIB);
+    // Resolution order (first existing path wins):
+    //  1. Env: KEA_PARAKEET_CPU_LIB / KEA_PARAKEET_VULKAN_LIB / KEA_PARAKEET_LIB
+    //  2. Compile-time path from cmake/parakeet.cmake (when KEA_BUILD_PARAKEET=ON)
+    //  3. Relative to the kea binary (dev tree: build/bin → build/parakeet/…)
+    const bool vulkan = (device == ParakeetDevice::Vulkan);
+    QStringList candidates;
+
+    const QByteArray envSpecific =
+        qgetenv(vulkan ? "KEA_PARAKEET_VULKAN_LIB" : "KEA_PARAKEET_CPU_LIB");
+    const QByteArray envAny = qgetenv("KEA_PARAKEET_LIB");
+    if (!envSpecific.isEmpty()) {
+        candidates << QString::fromUtf8(envSpecific);
+    }
+    if (!envAny.isEmpty()) {
+        candidates << QString::fromUtf8(envAny);
+    }
+
+    const QString baked = vulkan ? QStringLiteral(KEA_PARAKEET_VULKAN_LIB)
+                                 : QStringLiteral(KEA_PARAKEET_CPU_LIB);
+    if (!baked.isEmpty()) {
+        candidates << baked;
+    }
+
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QString variant = vulkan ? QStringLiteral("vulkan") : QStringLiteral("cpu");
+    // Typical layout after ExternalProject build:
+    //   <build>/bin/kea
+    //   <build>/parakeet/cpu-build/libparakeet.so
+    candidates << appDir + QStringLiteral("/../parakeet/%1-build/libparakeet.so").arg(variant);
+    candidates << appDir + QStringLiteral("/parakeet/%1-build/libparakeet.so").arg(variant);
+    candidates << appDir + QStringLiteral("/libparakeet-%1.so").arg(variant);
+    candidates << appDir + QStringLiteral("/libparakeet.so");
+
+    const QString found = firstExisting(candidates);
+    if (!found.isEmpty()) {
+        return QFileInfo(found).absoluteFilePath();
+    }
+    // Return the preferred baked/env path even if missing so load() can report it.
+    if (!envSpecific.isEmpty()) {
+        return QString::fromUtf8(envSpecific);
+    }
+    if (!envAny.isEmpty()) {
+        return QString::fromUtf8(envAny);
+    }
+    if (!baked.isEmpty()) {
+        return baked;
     }
     return {};
 }
@@ -81,11 +145,17 @@ bool ParakeetBackend::load(ParakeetDevice device)
 {
     const QString path = libraryPath(device);
     if (path.isEmpty()) {
-        setError(QStringLiteral("backend variant not built (path empty)"));
+        setError(QStringLiteral(
+            "parakeet library not found. Build with -DKEA_BUILD_PARAKEET=ON "
+            "(cmake --build build --target parakeet_all), or set KEA_PARAKEET_LIB "
+            "to a libparakeet.so path."));
         return false;
     }
     if (!QFile::exists(path)) {
-        setError(QStringLiteral("backend library not found at %1 (run the build / parakeet_all target)").arg(path));
+        setError(QStringLiteral(
+                     "parakeet library not found at %1. Build parakeet_all or set "
+                     "KEA_PARAKEET_LIB.")
+                     .arg(path));
         return false;
     }
 
@@ -100,6 +170,7 @@ bool ParakeetBackend::load(ParakeetDevice device)
     m_sym->capi_load = reinterpret_cast<parakeet_ctx *(*)(const char *)>(dlsym(m_handle, "parakeet_capi_load"));
     m_sym->capi_free = reinterpret_cast<void (*)(parakeet_ctx *)>(dlsym(m_handle, "parakeet_capi_free"));
     m_sym->capi_transcribe_path = reinterpret_cast<char *(*)(parakeet_ctx *, const char *, int)>(dlsym(m_handle, "parakeet_capi_transcribe_path"));
+    m_sym->capi_transcribe_pcm = reinterpret_cast<char *(*)(parakeet_ctx *, const float *, int, int, int)>(dlsym(m_handle, "parakeet_capi_transcribe_pcm"));
     m_sym->capi_free_string = reinterpret_cast<void (*)(char *)>(dlsym(m_handle, "parakeet_capi_free_string"));
     m_sym->capi_last_error = reinterpret_cast<const char *(*)(parakeet_ctx *)>(dlsym(m_handle, "parakeet_capi_last_error"));
 
@@ -112,7 +183,8 @@ bool ParakeetBackend::load(ParakeetDevice device)
     m_sym->capi_stream_free = reinterpret_cast<void (*)(parakeet_stream *)>(dlsym(m_handle, "parakeet_capi_stream_free"));
 
     if (!m_sym->capi_abi_version || !m_sym->capi_load || !m_sym->capi_free
-        || !m_sym->capi_transcribe_path || !m_sym->capi_free_string || !m_sym->capi_last_error) {
+        || !m_sym->capi_transcribe_path || !m_sym->capi_transcribe_pcm
+        || !m_sym->capi_free_string || !m_sym->capi_last_error) {
         setError(QStringLiteral("missing parakeet C-API symbols in %1").arg(path));
         dlclose(m_handle);
         m_handle = nullptr;
@@ -150,6 +222,29 @@ TranscriptionResult ParakeetBackend::transcribePath(const QString &wavPath)
     char *text = m_sym->capi_transcribe_path(m_ctx->ctx, wavPath.toUtf8().constData(), 0 /*default decoder*/);
     if (!text) {
         r.text = QStringLiteral("transcribe failed: %1")
+                     .arg(QString::fromUtf8(m_sym->capi_last_error(m_ctx->ctx)));
+        return r;
+    }
+    r.ok = true;
+    r.text = QString::fromUtf8(text);
+    m_sym->capi_free_string(text);
+    return r;
+}
+
+TranscriptionResult ParakeetBackend::transcribePcm(const float *samples, int nSamples, int sampleRate)
+{
+    TranscriptionResult r;
+    if (!hasModel()) {
+        r.text = QStringLiteral("no model loaded");
+        return r;
+    }
+    if (!samples || nSamples <= 0) {
+        r.text = QStringLiteral("empty audio");
+        return r;
+    }
+    char *text = m_sym->capi_transcribe_pcm(m_ctx->ctx, samples, nSamples, sampleRate, 0 /*default decoder*/);
+    if (!text) {
+        r.text = QStringLiteral("transcribe_pcm failed: %1")
                      .arg(QString::fromUtf8(m_sym->capi_last_error(m_ctx->ctx)));
         return r;
     }

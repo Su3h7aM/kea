@@ -10,8 +10,9 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QTimer>
 #include <QUrl>
-#include <QVector>
+#include <QList>
 
 #include <KAboutData>
 #include <KIconTheme>
@@ -19,25 +20,36 @@
 #include <KLocalizedString>
 
 #include "app/app_settings.h"
+#include "app/model_downloader.h"
+#include "app/readiness.h"
 #include "app/tray_controller.h"
 #include "controller/dictation_controller.h"
 #include "hotkey/global_hotkey.h"
 #include "insert/input_method.h"
 #include "insert/text_committer.h"
+#include "logging.h"
+
+// Default offline TDT model download (must match data/models.json).
+// Path resolution: $KEA_MODEL, else ~/.local/share/kea/models/<filename>
+// (see AppSettings::defaultModelPath).
+static const char kDefaultModelUrl[] =
+    "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/"
+    "parakeet-tdt-0.6b-v3-q8_0.gguf";
+static const char kDefaultModelFilename[] = "tdt-0.6b-v3-q8_0.gguf";
 
 int main(int argc, char *argv[])
 {
-    // Queued cross-thread PCM delivery (main → worker).
-    qRegisterMetaType<QVector<float>>("QVector<float>");
+    qRegisterMetaType<QList<float>>("QList<float>");
 
     KIconTheme::initTheme();
 
     QApplication app(argc, argv);
     KLocalizedString::setApplicationDomain("kea");
 
-    QApplication::setOrganizationName(QStringLiteral("KDE"));
+    // Settings live under ~/.config/kea/kea.conf (must match AppSettings / QSettings).
+    QApplication::setOrganizationName(QStringLiteral("kea"));
     QApplication::setOrganizationDomain(QStringLiteral("kde.org"));
-    QApplication::setApplicationName(QStringLiteral("Kea"));
+    QApplication::setApplicationName(QStringLiteral("kea"));
     QApplication::setDesktopFileName(QStringLiteral("org.kde.kea"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
@@ -52,8 +64,12 @@ int main(int argc, char *argv[])
                      KAboutLicense::MIT,
                      i18nc("@info:credit", "© 2026 Kea contributors"));
     about.addAuthor(i18nc("@info:credit", "Kea contributors"));
+    about.setHomepage(QStringLiteral("https://github.com/Su3h7aM/kea"));
+    about.setBugAddress("https://github.com/Su3h7aM/kea/issues");
     KAboutData::setApplicationData(about);
     QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("preferences-desktop-locale")));
+
+    qCInfo(keaLog) << "Kea" << about.version() << "starting";
 
     kea::AppSettings settings;
     TrayController tray;
@@ -68,13 +84,15 @@ int main(int argc, char *argv[])
     dictation.setTextCommitter(&committer);
     dictation.setHotkey(&hotkey);
 
-    // Input-method context lifecycle → committer + tray status (when idle).
+    kea::ModelDownloader downloader;
+    kea::Readiness readiness(&settings, &inputMethod, &committer, &dictation);
+
     QObject::connect(&inputMethod, &kea::InputMethod::contextChanged,
                      &committer, [&](kea::InputMethodContext *ctx) {
                          committer.setContext(ctx);
+                         readiness.refresh();
                      });
 
-    // Dictation status drives the tray.
     QObject::connect(&dictation, &kea::DictationController::statusTextChanged, &tray, [&]() {
         tray.setStatusText(dictation.statusText());
     });
@@ -82,29 +100,34 @@ int main(int argc, char *argv[])
         tray.setListening(dictation.isListening());
     });
 
-    // Tray actions.
     QObject::connect(&tray, &TrayController::startRequested, &dictation, &kea::DictationController::start);
     QObject::connect(&tray, &TrayController::stopRequested, &dictation, &kea::DictationController::stop);
     QObject::connect(&tray, &TrayController::cancelRequested, &dictation, &kea::DictationController::cancel);
 
-    // Settings → hotkey rebind.
     QObject::connect(&settings, &kea::AppSettings::hotkeyChanged, &hotkey, [&]() {
         hotkey.setSequence(settings.hotkey());
     });
 
-    // Reflect input-method availability when not actively dictating.
     QObject::connect(&inputMethod, &QWaylandClientExtension::activeChanged, &tray, [&]() {
         if (dictation.isListening()) {
             return;
         }
         if (inputMethod.isActive()) {
-            tray.setStatusText(QStringLiteral("Idle — hold hotkey to dictate"));
+            tray.setStatusText(settings.modelFileExists()
+                                   ? QStringLiteral("Idle — hold hotkey to dictate")
+                                   : QStringLiteral("Idle — model missing (open Settings)"));
         } else {
             tray.setStatusText(QStringLiteral("Idle (input-method unavailable)"));
         }
+        readiness.refresh();
     });
+
     if (inputMethod.isActive()) {
-        tray.setStatusText(QStringLiteral("Idle — hold hotkey to dictate"));
+        tray.setStatusText(settings.modelFileExists()
+                               ? QStringLiteral("Idle — hold hotkey to dictate")
+                               : QStringLiteral("Idle — model missing (open Settings)"));
+    } else if (!settings.modelFileExists()) {
+        tray.setStatusText(QStringLiteral("Setup needed — open Settings"));
     }
 
     QQmlApplicationEngine engine;
@@ -115,14 +138,39 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("_dictation"), &dictation);
     engine.rootContext()->setContextProperty(QStringLiteral("_settings"), &settings);
     engine.rootContext()->setContextProperty(QStringLiteral("_hotkey"), &hotkey);
+    engine.rootContext()->setContextProperty(QStringLiteral("_readiness"), &readiness);
+    engine.rootContext()->setContextProperty(QStringLiteral("_downloader"), &downloader);
+    engine.rootContext()->setContextProperty(QStringLiteral("_defaultModelUrl"),
+                                             QString::fromUtf8(kDefaultModelUrl));
+    engine.rootContext()->setContextProperty(QStringLiteral("_defaultModelFilename"),
+                                             QString::fromUtf8(kDefaultModelFilename));
 
     engine.loadFromModule("org.kde.kea", "Main");
     if (engine.rootObjects().isEmpty()) {
+        qCCritical(keaLog) << "failed to load QML module org.kde.kea";
         return -1;
     }
 
-    // Eager-load the model in the background so the first hotkey is fast.
-    dictation.loadModel();
+    // Eager-load only when the GGUF is present; otherwise wait for download.
+    if (settings.modelFileExists()) {
+        dictation.loadModel();
+    } else {
+        qCInfo(keaLog) << "no model at" << settings.modelPath() << "; skip eager load";
+    }
+
+    // Debug helper: KEA_AUTO_DICTATE_MS=N starts dictation after load and stops after N ms.
+    const int autoMs = qEnvironmentVariableIntValue("KEA_AUTO_DICTATE_MS");
+    if (autoMs > 0) {
+        QObject::connect(&dictation, &kea::DictationController::modelLoadedChanged, &dictation, [&]() {
+            if (!dictation.isModelLoaded()) {
+                return;
+            }
+            qCInfo(keaLog) << "KEA_AUTO_DICTATE_MS: start for" << autoMs << "ms";
+            dictation.start();
+            QTimer::singleShot(autoMs, &dictation, &kea::DictationController::stop);
+            QTimer::singleShot(autoMs + 60000, &app, &QCoreApplication::quit);
+        }, Qt::SingleShotConnection);
+    }
 
     return app.exec();
 }

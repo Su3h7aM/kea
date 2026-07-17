@@ -2,16 +2,20 @@
  * SPDX-FileCopyrightText: 2026 Kea contributors
  * SPDX-License-Identifier: MIT
  *
- * ParakeetWorker — all parakeet stream_* calls live on this object's thread.
+ * ParakeetWorker — all parakeet calls live on this object's thread.
  *
- * parakeet's C-API is not thread-safe per context (RFC invariant R7). Move this
- * QObject onto a dedicated QThread and only talk to it via queued signals/slots.
+ * Supports:
+ *   - Streaming models (realtime EOU): stream_begin / feed / finalize
+ *   - Offline models (TDT/CTC/RNNT, e.g. tdt-0.6b-v3): buffer PCM while the
+ *     mic is open, then transcribe_pcm once on stop
+ *
+ * parakeet's C-API is not thread-safe per context (RFC invariant R7).
  */
 #pragma once
 
+#include <QList>
 #include <QObject>
 #include <QString>
-#include <QVector>
 
 #include "inference/parakeet_backend.h"
 
@@ -27,23 +31,26 @@ public:
 
 public Q_SLOTS:
     void loadBackend(int device /*0=cpu,1=vulkan*/, const QString &modelPath);
-    void beginStream();
-    void feedPcm(const QVector<float> &samples);
-    void finalizeStream(); // flush tail + free session
-    void cancelStream();   // free session without commit
+    /// Prefer streaming; if the model is offline-only, buffer PCM instead.
+    void beginSession();
+    void feedPcm(const QList<float> &samples);
+    void finalizeSession(); // stream finalize OR offline transcribe_pcm
+    void cancelSession();
 
 Q_SIGNALS:
     void modelReady(bool ok, const QString &error);
-    void streamStarted(bool ok, const QString &error);
-    /// Newly finalized text + EOU/EOB mask from one feed.
+    /// ok, error, offlineMode (true = buffer+batch; false = live stream)
+    void sessionStarted(bool ok, const QString &error, bool offlineMode);
     void textFinalized(const QString &text, int eouMask);
-    /// Final tail after finalizeStream (may be empty).
-    void streamFinished(const QString &tail, const QString &error);
-    void streamCancelled();
+    void sessionFinished(const QString &text, const QString &error);
+    void sessionCancelled();
 
 private:
     ParakeetBackend m_backend;
     bool m_modelOk = false;
+    bool m_offlineMode = false;
+    bool m_sessionActive = false;
+    QList<float> m_pcmBuffer;
 };
 
 } // namespace kea

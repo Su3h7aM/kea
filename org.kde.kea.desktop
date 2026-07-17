@@ -2,14 +2,15 @@
 Type=Application
 Name=Kea
 GenericName=Voice Dictation
-Comment=On-device voice dictation for KDE Plasma
+Comment=On-device, streaming voice dictation for KDE Plasma (Wayland)
 Comment[pt]=Ditado por voz no dispositivo para o KDE Plasma
 Exec=kea
 Icon=preferences-desktop-locale
 Categories=Utility;Accessibility;Qt;KDE;
-Keywords=voice;dictation;speech;transcribe;ASR;whisper;parakeet;
+Keywords=voice;dictation;speech;transcribe;ASR;whisper;parakeet;plasma;
 Terminal=false
 SingleMainWindow=true
 StartupNotify=true
 StartupWMClass=kea
 X-KDE-StartupNotify=true
+X-GNOME-UsesNotifications=false

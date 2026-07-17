@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: 2026 Kea contributors
  * SPDX-License-Identifier: MIT
  *
- * Main — Kea settings + live dictation status.
+ * Main — Kea settings, readiness, onboarding, and live dictation status.
  */
 import QtQuick
 import QtQuick.Layouts
@@ -12,9 +12,16 @@ import org.kde.kirigami as Kirigami
 Kirigami.ApplicationWindow {
     id: root
 
-    width: Kirigami.Units.gridUnit * 32
-    height: Kirigami.Units.gridUnit * 28
+    width: Kirigami.Units.gridUnit * 34
+    height: Kirigami.Units.gridUnit * 32
     title: i18nc("@title:window", "Kea")
+
+    // Show settings on first launch so the user can complete onboarding.
+    Component.onCompleted: {
+        if (_settings && !_settings.onboardingDone) {
+            root.show()
+        }
+    }
 
     Connections {
         target: _tray
@@ -39,6 +46,7 @@ Kirigami.ApplicationWindow {
                       ? i18nc("@action", "Stop")
                       : i18nc("@action", "Start")
                 icon.name: _dictation && _dictation.listening ? "media-playback-stop" : "media-record"
+                enabled: _readiness ? (_readiness.modelReady || (_dictation && _dictation.listening)) : true
                 onTriggered: {
                     if (_dictation.listening)
                         _dictation.stop()
@@ -57,6 +65,75 @@ Kirigami.ApplicationWindow {
         ColumnLayout {
             width: parent.width
             spacing: Kirigami.Units.largeSpacing
+
+            // --- Onboarding / readiness banner ---
+            Kirigami.InlineMessage {
+                Layout.fillWidth: true
+                visible: _readiness && !_readiness.readyToDictate
+                type: Kirigami.MessageType.Information
+                text: _readiness ? _readiness.summary : ""
+            }
+
+            Kirigami.InlineMessage {
+                Layout.fillWidth: true
+                visible: _dictation && _dictation.lastError.length > 0
+                type: Kirigami.MessageType.Error
+                text: _dictation ? _dictation.lastError : ""
+            }
+
+            Kirigami.InlineMessage {
+                Layout.fillWidth: true
+                visible: _settings && !_settings.onboardingDone
+                type: Kirigami.MessageType.Positive
+                text: i18nc("@info",
+                    "Welcome to Kea. Complete the checklist below, then mark setup done.")
+            }
+
+            // --- Setup checklist ---
+            Kirigami.FormLayout {
+                Layout.fillWidth: true
+
+                Controls.Label {
+                    Kirigami.FormData.label: i18nc("@label", "1. Model file")
+                    text: _readiness && _readiness.modelReady
+                          ? i18nc("@info", "✓ Found")
+                          : i18nc("@info", "✗ Missing")
+                }
+                Controls.Label {
+                    text: _readiness ? _readiness.modelHint : ""
+                    wrapMode: Text.WrapAnywhere
+                    opacity: 0.7
+                    Layout.fillWidth: true
+                }
+
+                Controls.Label {
+                    Kirigami.FormData.label: i18nc("@label", "2. Input method")
+                    text: _readiness && _readiness.inputMethodBound
+                          ? i18nc("@info", "✓ Bound")
+                          : i18nc("@info", "✗ Not bound")
+                }
+                Controls.Label {
+                    text: _readiness ? _readiness.inputMethodHint : ""
+                    wrapMode: Text.WordWrap
+                    opacity: 0.7
+                    Layout.fillWidth: true
+                }
+
+                Controls.Label {
+                    Kirigami.FormData.label: i18nc("@label", "3. Text field")
+                    text: _readiness && _readiness.textFieldActive
+                          ? i18nc("@info", "✓ Focused")
+                          : i18nc("@info", "○ Focus any text field when ready")
+                }
+            }
+
+            Kirigami.Separator { Layout.fillWidth: true }
+
+            // --- Live status ---
+            Kirigami.Heading {
+                text: i18nc("@title:group", "Dictation")
+                level: 2
+            }
 
             Kirigami.FormLayout {
                 Layout.fillWidth: true
@@ -81,46 +158,25 @@ Kirigami.ApplicationWindow {
                 }
 
                 Controls.Label {
-                    Kirigami.FormData.label: i18nc("@label", "Model")
-                    text: {
-                        if (!_dictation)
-                            return ""
-                        return _dictation.modelLoaded
-                               ? i18nc("@info", "Loaded")
-                               : i18nc("@info", "Not loaded")
-                    }
-                }
-
-                Controls.Label {
-                    Kirigami.FormData.label: i18nc("@label", "Input method")
-                    text: {
-                        if (!_inputMethod)
-                            return i18nc("@info", "Unavailable")
-                        if (!_inputMethod.active)
-                            return i18nc("@info", "Not bound (need Wayland + free IME slot)")
-                        if (_committer && _committer.canCommit)
-                            return i18nc("@info", "Active — text field focused")
-                        return i18nc("@info", "Bound — focus a text field")
-                    }
-                    wrapMode: Text.WordWrap
-                }
-
-                Controls.Label {
                     Kirigami.FormData.label: i18nc("@label", "Hotkey")
                     text: _hotkey ? _hotkey.sequenceDisplay : ""
                 }
 
                 Controls.Label {
-                    visible: _dictation && _dictation.lastError.length > 0
-                    Kirigami.FormData.label: i18nc("@label", "Error")
-                    text: _dictation ? _dictation.lastError : ""
-                    color: Kirigami.Theme.negativeTextColor
-                    wrapMode: Text.WordWrap
+                    Kirigami.FormData.label: i18nc("@label", "Engine model")
+                    text: {
+                        if (!_dictation)
+                            return ""
+                        return _dictation.modelLoaded
+                               ? i18nc("@info", "Loaded in memory")
+                               : i18nc("@info", "Not loaded")
+                    }
                 }
             }
 
             Kirigami.Separator { Layout.fillWidth: true }
 
+            // --- Settings ---
             Kirigami.Heading {
                 text: i18nc("@title:group", "Settings")
                 level: 2
@@ -152,12 +208,51 @@ Kirigami.ApplicationWindow {
 
                 Controls.Button {
                     text: i18nc("@action:button", "Reload model")
+                    enabled: _downloader ? !_downloader.busy : true
                     onClicked: {
                         if (_settings)
                             _settings.modelPath = modelField.text
                         if (_dictation)
                             _dictation.loadModel()
                     }
+                }
+
+                Controls.Button {
+                    text: _downloader && _downloader.busy
+                          ? i18nc("@action:button", "Cancel download")
+                          : i18nc("@action:button", "Download TDT 0.6B v3 (HF)")
+                    enabled: _downloader !== null
+                    onClicked: {
+                        if (!_downloader || !_settings)
+                            return
+                        if (_downloader.busy) {
+                            _downloader.cancel()
+                            return
+                        }
+                        const dest = _settings.modelsDir() + "/" + _defaultModelFilename
+                        _downloader.download(_defaultModelUrl, dest)
+                    }
+                }
+
+                Controls.ProgressBar {
+                    visible: _downloader && _downloader.busy
+                    from: 0
+                    to: 1
+                    value: _downloader ? _downloader.progress : 0
+                    Layout.fillWidth: true
+                }
+
+                Controls.Label {
+                    visible: _downloader && _downloader.statusText.length > 0
+                    text: _downloader ? _downloader.statusText : ""
+                    opacity: 0.8
+                }
+
+                Controls.Button {
+                    text: i18nc("@action:button", "Mark setup complete")
+                    visible: _settings && !_settings.onboardingDone
+                    enabled: _readiness && _readiness.modelReady
+                    onClicked: _settings.onboardingDone = true
                 }
             }
 
@@ -167,9 +262,24 @@ Kirigami.ApplicationWindow {
                 opacity: 0.7
                 text: i18nc("@info",
                     "Hold the global hotkey (default Meta+Shift+V) while a text field " +
-                    "is focused to dictate. Release to commit. Tray click also starts/stops. " +
+                    "is focused to dictate. Release to commit.\n\n" +
+                    "Set the model path in Settings, or export KEA_MODEL=/path/to/model.gguf. " +
+                    "Offline models (e.g. TDT) buffer audio until release; streaming EOU " +
+                    "models insert text live.\n\n" +
                     "Only one Wayland input method can own the seat — disable fcitx5/IBus if binding fails.")
             }
+        }
+    }
+
+    Connections {
+        target: _downloader
+        function onFinished(localPath) {
+            if (_settings) {
+                _settings.modelPath = localPath
+                modelField.text = localPath
+            }
+            if (_dictation)
+                _dictation.loadModel()
         }
     }
 }

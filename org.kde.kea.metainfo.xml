@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SPDX-FileCopyrightText: 2026 Kea contributors
+  SPDX-License-Identifier: MIT
+-->
+<component type="desktop-application">
+  <id>org.kde.kea</id>
+  <name>Kea</name>
+  <summary>On-device voice dictation for KDE Plasma</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="org.kde.kea">
+    <name>Kea contributors</name>
+  </developer>
+  <description>
+    <p>
+      Kea is a system-wide, on-device voice dictation app for KDE Plasma on Wayland.
+      Hold a global hotkey, speak, and your words stream into the focused text field —
+      transcribed entirely on your machine with no cloud dependency.
+    </p>
+    <p>
+      Speech recognition uses parakeet.cpp (NVIDIA Parakeet ASR via ggml) with a
+      streaming end-of-utterance model. Text is inserted through the Wayland
+      input-method protocol. Inference runs on CPU or Vulkan GPU.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/Su3h7aM/kea</url>
+  <url type="bugtracker">https://github.com/Su3h7aM/kea/issues</url>
+  <url type="vcs-browser">https://github.com/Su3h7aM/kea</url>
+  <launchable type="desktop-id">org.kde.kea.desktop</launchable>
+  <provides>
+    <binary>kea</binary>
+  </provides>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <recommends>
+    <control>touch</control>
+  </recommends>
+  <categories>
+    <category>Utility</category>
+    <category>Accessibility</category>
+  </categories>
+  <keywords>
+    <keyword>dictation</keyword>
+    <keyword>speech</keyword>
+    <keyword>voice</keyword>
+    <keyword>ASR</keyword>
+    <keyword>transcribe</keyword>
+    <keyword>accessibility</keyword>
+  </keywords>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-07-17">
+      <description>
+        <p>Initial pre-alpha: streaming dictation pipeline, Kirigami UI, tray, settings.</p>
+      </description>
+    </release>
+  </releases>
+</component>

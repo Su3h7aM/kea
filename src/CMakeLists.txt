@@ -8,10 +8,16 @@ ecm_add_qml_module(kea
 target_sources(kea
     PRIVATE
         main.cpp
+        logging.cpp
+        logging.h
         app/tray_controller.h
         app/tray_controller.cpp
         app/app_settings.h
         app/app_settings.cpp
+        app/readiness.h
+        app/readiness.cpp
+        app/model_downloader.h
+        app/model_downloader.cpp
         hotkey/global_hotkey.h
         hotkey/global_hotkey.cpp
         controller/parakeet_worker.h
@@ -34,6 +40,7 @@ target_link_libraries(kea
         Qt6::QuickControls2
         Qt6::Widgets
         Qt6::Multimedia
+        Qt6::Network
         Qt6::WaylandClient
         KF6::I18n
         KF6::CoreAddons
@@ -114,6 +121,7 @@ add_test(NAME committer COMMAND kea-committer-test)
 
 # Headless controller smoke (missing model → Error).
 add_executable(kea-controller-test controller_test.cpp
+    logging.cpp
     app/app_settings.cpp
     controller/dictation_controller.cpp
     controller/parakeet_worker.cpp

@@ -87,9 +87,9 @@ void TrayController::setListening(bool listening)
         return;
     }
     m_listening = listening;
-    m_item->setIconByName(listening
-                               ? QStringLiteral("media-record")
-                               : QStringLiteral("preferences-desktop-locale"));
+    // Keep a stable icon — swapping icons during capture has been flaky with
+    // some status-notifier hosts. Reflect state in the tooltip instead.
+    m_item->setToolTipSubTitle(listening ? QStringLiteral("Listening…") : m_statusText);
     updateMenuLabels();
     Q_EMIT listeningChanged();
 }

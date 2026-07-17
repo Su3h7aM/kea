@@ -4,20 +4,32 @@
  */
 #include "app_settings.h"
 
+#include <QByteArray>
 #include <QDir>
+#include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
 
 #include "hotkey/global_hotkey.h"
+#include "logging.h"
 
 namespace kea {
 
+QString AppSettings::defaultModelsDir()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+        + QStringLiteral("/kea/models");
+}
+
 QString AppSettings::defaultModelPath()
 {
-    const QString base =
-        QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
-        + QStringLiteral("/kea/models");
-    return base + QStringLiteral("/parakeet_realtime_eou_120m-q8_0.gguf");
+    // KEA_MODEL overrides the default absolute path (no hard-coded machine paths).
+    const QByteArray env = qgetenv("KEA_MODEL");
+    if (!env.isEmpty()) {
+        return QString::fromUtf8(env);
+    }
+    // Default: XDG data dir + offline TDT 0.6B v3 filename.
+    return defaultModelsDir() + QStringLiteral("/tdt-0.6b-v3-q8_0.gguf");
 }
 
 AppSettings::AppSettings(QObject *parent)
@@ -30,9 +42,12 @@ AppSettings::AppSettings(QObject *parent)
 
 void AppSettings::load()
 {
+    // Always use the kea/kea config (independent of QCoreApplication names so
+    // tests cannot pollute the user config via organizationName overrides).
     QSettings s(QStringLiteral("kea"), QStringLiteral("kea"));
     m_modelPath = s.value(QStringLiteral("modelPath"), defaultModelPath()).toString();
-    m_backend = s.value(QStringLiteral("backend"), 0).toInt();
+    m_backend = s.value(QStringLiteral("backend"), 0).toInt(); // default CPU
+    m_onboardingDone = s.value(QStringLiteral("onboardingDone"), false).toBool();
     const QString hot = s.value(QStringLiteral("hotkey"),
                                 GlobalHotkey::defaultSequence().toString(QKeySequence::PortableText))
                             .toString();
@@ -40,6 +55,18 @@ void AppSettings::load()
     if (m_hotkey.isEmpty()) {
         m_hotkey = GlobalHotkey::defaultSequence();
     }
+    // Never keep a path that clearly came from automated tests.
+    if (m_modelPath.contains(QStringLiteral("kea-definitely-missing-model"))) {
+        m_modelPath = defaultModelPath();
+    }
+    // Vulkan + Qt Quick on the same process has been crashy on some RADV setups;
+    // keep a stored Vulkan choice, but log a hint.
+    if (m_backend == 1) {
+        qCInfo(keaLog) << "backend=Vulkan (if you see SIGSEGV during dictation, switch to CPU)";
+    }
+    qCInfo(keaLog) << "settings loaded: model=" << m_modelPath
+                    << "backend=" << m_backend
+                    << "onboardingDone=" << m_onboardingDone;
 }
 
 void AppSettings::save() const
@@ -48,6 +75,7 @@ void AppSettings::save() const
     s.setValue(QStringLiteral("modelPath"), m_modelPath);
     s.setValue(QStringLiteral("backend"), m_backend);
     s.setValue(QStringLiteral("hotkey"), m_hotkey.toString(QKeySequence::PortableText));
+    s.setValue(QStringLiteral("onboardingDone"), m_onboardingDone);
 }
 
 void AppSettings::setModelPath(const QString &path)
@@ -84,6 +112,28 @@ void AppSettings::setHotkey(const QKeySequence &seq)
 void AppSettings::setHotkeyString(const QString &s)
 {
     setHotkey(QKeySequence::fromString(s, QKeySequence::NativeText));
+}
+
+void AppSettings::setOnboardingDone(bool done)
+{
+    if (done == m_onboardingDone) {
+        return;
+    }
+    m_onboardingDone = done;
+    save();
+    Q_EMIT onboardingDoneChanged();
+}
+
+bool AppSettings::modelFileExists() const
+{
+    return QFileInfo::exists(m_modelPath) && QFileInfo(m_modelPath).isFile();
+}
+
+QString AppSettings::modelsDir() const
+{
+    const QString dir = defaultModelsDir();
+    QDir().mkpath(dir);
+    return dir;
 }
 
 } // namespace kea

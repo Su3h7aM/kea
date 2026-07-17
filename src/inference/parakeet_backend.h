@@ -73,8 +73,11 @@ public:
     /// Load a model GGUF into the backend's context. Returns false on failure.
     bool loadModel(const QString &ggufPath);
 
-    /// Transcribe a WAV file (offline path, default decoder). Phase 0 smoke.
+    /// Transcribe a WAV file (offline path, default decoder).
     TranscriptionResult transcribePath(const QString &wavPath);
+
+    /// Transcribe in-memory 16 kHz mono float PCM (offline models, e.g. TDT).
+    TranscriptionResult transcribePcm(const float *samples, int nSamples, int sampleRate = 16000);
 
     // --- Streaming (parakeet_realtime_eou_120m-v1) ---
     // One active session at a time. All stream_* calls must happen on the same

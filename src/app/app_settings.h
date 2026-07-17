@@ -18,6 +18,8 @@ class AppSettings : public QObject
     Q_PROPERTY(QString modelPath READ modelPath WRITE setModelPath NOTIFY modelPathChanged)
     Q_PROPERTY(int backend READ backend WRITE setBackend NOTIFY backendChanged)
     Q_PROPERTY(QString hotkey READ hotkeyString WRITE setHotkeyString NOTIFY hotkeyChanged)
+    Q_PROPERTY(bool onboardingDone READ onboardingDone WRITE setOnboardingDone NOTIFY onboardingDoneChanged)
+    Q_PROPERTY(bool modelFileExists READ modelFileExists NOTIFY modelPathChanged)
 
 public:
     explicit AppSettings(QObject *parent = nullptr);
@@ -35,21 +37,33 @@ public:
     QString hotkeyString() const { return m_hotkey.toString(QKeySequence::NativeText); }
     void setHotkeyString(const QString &s);
 
+    bool onboardingDone() const { return m_onboardingDone; }
+    void setOnboardingDone(bool done);
+
+    /// True when modelPath points at an existing file.
+    bool modelFileExists() const;
+
+    /// Directory that holds downloaded models (~/.local/share/kea/models).
+    Q_INVOKABLE QString modelsDir() const;
+
     void load();
     void save() const;
 
     /// Default model location under XDG data home.
     static QString defaultModelPath();
+    static QString defaultModelsDir();
 
 Q_SIGNALS:
     void modelPathChanged();
     void backendChanged();
     void hotkeyChanged();
+    void onboardingDoneChanged();
 
 private:
     QString m_modelPath;
     int m_backend = 0;
     QKeySequence m_hotkey;
+    bool m_onboardingDone = false;
 };
 
 } // namespace kea

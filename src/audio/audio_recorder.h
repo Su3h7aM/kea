@@ -3,27 +3,21 @@
  * SPDX-License-Identifier: MIT
  *
  * AudioRecorder — captures microphone audio and emits 16 kHz mono float PCM.
- *
- * Wraps Qt6 Multimedia's QAudioSource. On Linux that resolves to the native
- * PipeWire backend (Qt >= 6.10). PipeWire typically delivers 48 kHz; we capture
- * as 16-bit mono and run each chunk through a StreamingResampler to produce the
- * 16 kHz mono float32 blocks parakeet's streaming path expects.
- *
- * Pull mode: QAudioSource gives us a QIODevice; we read on readyRead. Output is
- * emitted as the pcmBlock signal. A levelChanged signal (RMS) drives the UI
- * level meter. This class runs its capture on the owning thread — the
- * DictationController (Phase 3) will marshal pcmBlock onto the parakeet worker
- * thread, respecting parakeet's per-context thread-affinity invariant.
  */
 #pragma once
 
+#include <QAudioDevice>
+#include <QAudioFormat>
+#include <QElapsedTimer>
+#include <QList>
 #include <QObject>
-#include <QVector>
+#include <QPointer>
 
 #include <memory>
 
 class QAudioSource;
 class QIODevice;
+class QTimer;
 
 namespace kea {
 
@@ -37,28 +31,29 @@ public:
     explicit AudioRecorder(QObject *parent = nullptr);
     ~AudioRecorder() override;
 
-    /// Begin capturing from the default input device. Returns false if there is
-    /// no input device or the format is unsupported.
     bool start();
-
-    /// Stop capturing.
     void stop();
-
     bool isActive() const { return m_source != nullptr; }
+    QString lastError() const { return m_lastError; }
 
 Q_SIGNALS:
-    /// A block of 16 kHz mono float32 PCM, ready for parakeet stream_feed.
-    void pcmBlock(const QVector<float> &samples);
-    /// Input level (RMS, 0..1) for the UI meter.
+    /// 16 kHz mono float samples (Qt6: QList is the container used across threads).
+    void pcmBlock(const QList<float> &samples);
     void levelChanged(float level);
 
 private:
-    void onReadyRead();
+    void poll();
+    bool openInt16Mono(const QAudioDevice &input, int sampleRate);
 
     QAudioSource *m_source = nullptr;
-    QIODevice *m_io = nullptr;
+    QPointer<QIODevice> m_io;
+    QTimer *m_poll = nullptr;
     std::unique_ptr<StreamingResampler> m_resampler;
-    int m_inRate = 48000;
+    QAudioFormat m_format;
+    int m_bytesPerFrame = 0;
+    QString m_lastError;
+    bool m_stopping = false;
+    QElapsedTimer m_levelThrottle;
 };
 
 } // namespace kea

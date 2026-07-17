@@ -37,8 +37,12 @@ InputMethod::~InputMethod() = default;
 
 void InputMethod::zwp_input_method_v1_activate(struct ::zwp_input_method_context_v1 *id)
 {
-    // A text field gained focus. Destroy any previous context first.
-    m_context.reset();
+    // Drop the old context carefully: notify TextCommitter *before* destroying
+    // so it never holds a dangling IInputContext* (use-after-free → SIGSEGV).
+    if (m_context) {
+        Q_EMIT contextChanged(nullptr);
+        m_context.reset();
+    }
     m_context = std::make_unique<InputMethodContext>(id, this);
     Q_EMIT contextChanged(m_context.get());
     Q_EMIT activated();
@@ -50,9 +54,10 @@ void InputMethod::zwp_input_method_v1_deactivate(struct ::zwp_input_method_conte
     if (!m_context) {
         return;
     }
-    m_context.reset();
+    // Notify first, destroy second — same UAF rule as activate.
     Q_EMIT contextChanged(nullptr);
     Q_EMIT deactivated();
+    m_context.reset();
 }
 
 // --- InputMethodContext ---------------------------------------------------
@@ -69,7 +74,7 @@ InputMethodContext::InputMethodContext(struct ::zwp_input_method_context_v1 *obj
 InputMethodContext::~InputMethodContext()
 {
     m_valid = false;
-    // Destroy the wayland object if still live.
+    // Destroy the wayland object if still live. Guard against double-destroy.
     if (object()) {
         destroy();
     }
@@ -82,7 +87,7 @@ bool InputMethodContext::isValid() const
 
 void InputMethodContext::commitString(const QString &text)
 {
-    if (!isValid()) {
+    if (!isValid() || text.isEmpty()) {
         return;
     }
     commit_string(m_serial, text);

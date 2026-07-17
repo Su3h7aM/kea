@@ -4,12 +4,13 @@
  *
  * DictationController — the central state machine.
  *
- *   Idle ──start / hotkey-down──▶ Listening ──stop / hotkey-up──▶ Draining ──▶ Idle
- *     ▲                              │ cancel                         │
- *     └──────────────────────────────┴────────────────────────────────┘
+ *   Idle ──start / hotkey-down──▶ Starting ──▶ Listening ──stop / hotkey-up──▶ Draining ──▶ Idle
  *
- * Owns AudioRecorder (main thread) and a ParakeetWorker on a dedicated QThread.
- * Finalized text is pushed into TextCommitter on the GUI thread.
+ * Critical: `start()` must enter Starting *synchronously* so overlapping hotkey
+ * events cannot open multiple mic/parakeet sessions (that path SIGSEGV'd).
+ *
+ * Push-to-talk uses only GlobalHotkey::activeChanged (press/release). The
+ * discrete `triggered` signal is ignored for PTT to avoid double start/stop.
  */
 #pragma once
 
@@ -41,6 +42,7 @@ public:
     enum class State {
         Idle = 0,
         LoadingModel,
+        Starting,
         Listening,
         Draining,
         Error,
@@ -59,17 +61,16 @@ public:
     QString statusText() const { return m_statusText; }
     float level() const { return m_level; }
     QString lastError() const { return m_lastError; }
-    bool isListening() const { return m_state == State::Listening; }
+    bool isListening() const
+    {
+        return m_state == State::Listening || m_state == State::Starting;
+    }
     bool isModelLoaded() const { return m_modelLoaded; }
 
 public Q_SLOTS:
-    /// Ensure the model is loaded (async). Emits modelLoadedChanged when done.
     void loadModel();
-    /// Begin a dictation session (push-to-talk down / tray Start).
     void start();
-    /// End the session: stop mic, finalize stream, commit tail.
     void stop();
-    /// Abort without committing residual preedit.
     void cancel();
 
 Q_SIGNALS:
@@ -81,13 +82,13 @@ Q_SIGNALS:
 
 private Q_SLOTS:
     void onHotkeyActive(bool active);
-    void onPcmBlock(const QVector<float> &samples);
+    void onPcmBlock(const QList<float> &samples);
     void onLevel(float level);
     void onModelReady(bool ok, const QString &error);
-    void onStreamStarted(bool ok, const QString &error);
+    void onSessionStarted(bool ok, const QString &error, bool offlineMode);
     void onTextFinalized(const QString &text, int eouMask);
-    void onStreamFinished(const QString &tail, const QString &error);
-    void onStreamCancelled();
+    void onSessionFinished(const QString &text, const QString &error);
+    void onSessionCancelled();
 
 private:
     void setState(State s);
@@ -95,6 +96,7 @@ private:
     void setError(const QString &err);
     void beginListening();
     void stopCaptureOnly();
+    bool isBusy() const;
 
     AppSettings *m_settings = nullptr;
     TextCommitter *m_committer = nullptr;
@@ -102,7 +104,7 @@ private:
 
     std::unique_ptr<AudioRecorder> m_recorder;
     QThread m_workerThread;
-    ParakeetWorker *m_worker = nullptr; // lives on m_workerThread
+    ParakeetWorker *m_worker = nullptr;
 
     State m_state = State::Idle;
     QString m_statusText;
@@ -111,6 +113,8 @@ private:
     bool m_modelLoaded = false;
     bool m_modelLoadPending = false;
     bool m_startAfterLoad = false;
+    bool m_stopWhenStarted = false; ///< release arrived while still Starting
+    bool m_offlineMode = false;
 };
 
 } // namespace kea

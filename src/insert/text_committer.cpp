@@ -32,7 +32,10 @@ bool TextCommitter::canCommit() const
 
 bool TextCommitter::commitText(const QString &text)
 {
-    if (!canCommit()) {
+    // Re-check validity right before use — the Wayland context can be destroyed
+    // between canCommit() and commitString() if focus changes mid-dictation.
+    IInputContext *ctx = m_ctx;
+    if (!ctx || !ctx->isValid()) {
         setError(QStringLiteral("no active input context"));
         ++m_skippedCount;
         return false;
@@ -40,7 +43,8 @@ bool TextCommitter::commitText(const QString &text)
     if (text.isEmpty()) {
         return true; // nothing to send, not an error
     }
-    m_ctx->commitString(text);
+    ctx->commitString(text);
+    // Context may have been torn down during the commit; only touch local state.
     m_currentPreedit.clear();
     ++m_commitCount;
     m_lastError.clear();
@@ -50,7 +54,8 @@ bool TextCommitter::commitText(const QString &text)
 
 bool TextCommitter::setPreedit(const QString &text)
 {
-    if (!canCommit()) {
+    IInputContext *ctx = m_ctx;
+    if (!ctx || !ctx->isValid()) {
         setError(QStringLiteral("no active input context"));
         ++m_skippedCount;
         return false;
@@ -59,7 +64,7 @@ bool TextCommitter::setPreedit(const QString &text)
         return true;
     }
     // Empty fallbackCommit: on unfocus we don't want a partial word stuck.
-    m_ctx->setPreedit(text, QString());
+    ctx->setPreedit(text, QString());
     m_currentPreedit = text;
     ++m_preeditCount;
     m_lastError.clear();

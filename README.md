@@ -4,49 +4,68 @@
 
 Kea is a system-wide dictation app in the spirit of [Wispr Flow](https://wisprflow.ai/),
 but local-first, open source, and native to the Linux desktop. Place your cursor in
-any text field, press a global push-to-talk hotkey, speak, and your words stream into
-the focused field — transcribed entirely on your own machine, with no cloud dependency
-and no audio ever leaving the process.
+any text field, hold a global push-to-talk hotkey, speak, and your words stream into
+the focused field — transcribed entirely on your own machine.
 
 ## Status
 
-**Early / pre-alpha.** Design is captured in [RFC 0001](docs/rfc-0001-kea.md);
-implementation has not started. APIs, file layout, and behavior are all subject to
-change.
+**Pre-alpha (Phases 0–4 scaffolded).** The end-to-end control path works: hotkey → mic
+→ parakeet streaming → Wayland text insertion. You still need a streaming GGUF model
+and a free input-method seat on Plasma Wayland. Design details live in
+[RFC 0001](docs/rfc-0001-kea.md).
 
 ## Stack
 
 | Concern | Technology |
 | --- | --- |
 | UI | **Kirigami** + QML on **Qt 6** |
-| Speech recognition | **[parakeet.cpp](https://github.com/mudler/parakeet.cpp)** (ggml inference of NVIDIA Parakeet ASR), streaming with end-of-utterance detection |
-| Inference backends | **CPU** and **Vulkan** GPU (user-selectable) |
+| Speech recognition | **[parakeet.cpp](https://github.com/mudler/parakeet.cpp)** (streaming + EOU) |
+| Inference backends | **CPU** and **Vulkan** (runtime `dlopen`) |
 | Audio capture | **PipeWire** via Qt 6 Multimedia |
-| Text insertion | **Wayland `input-method-v2`** protocol |
-| Global hotkey | `KGlobalAccel` |
+| Text insertion | **Wayland `input-method-unstable-v1`** (KWin) |
+| Global hotkey | `KGlobalAccel` (default **Meta+Shift+V**) |
 | Tray | `KStatusNotifierItem` |
 
-## Target platform
+## Quick start
 
-KDE Plasma 6 on **Wayland** with the **PipeWire** audio stack. v1 targets new systems
-only — X11 and PulseAudio-only setups are out of scope.
+### Build (GUI only, no ASR compile)
 
-## Goals for v1
+```sh
+cmake -B build -DKEA_BUILD_PARAKEET=OFF
+cmake --build build
+./build/bin/kea
+```
 
-- Global push-to-talk hotkey that works from any focused text field.
-- Low-latency **streaming** transcription (words appear as you speak).
-- On-device inference only — no network, no account, no audio upload.
-- Two selectable backends: CPU and Vulkan.
-- System-tray icon + a Kirigami settings window.
+### Build with parakeet.cpp backends (fetches upstream at build time)
 
-An LLM-based cleanup/formatting layer (Wispr Flow's signature feature) is intentionally
-deferred to a later phase.
+```sh
+cmake -B build -DKEA_BUILD_PARAKEET=ON
+cmake --build build --target parakeet_all   # CPU (+ Vulkan if available)
+cmake --build build
+```
+
+### First run
+
+1. Open Kea from the tray (or the window that appears on first launch).
+2. **Download default model** (or place a streaming `.gguf` under
+   `~/.local/share/kea/models/` and set the path).
+3. On Plasma **Wayland**, ensure no other IME (fcitx5/IBus) owns the seat.
+4. Focus a text field, hold **Meta+Shift+V**, speak, release to commit.
+
+### Tests
+
+```sh
+./build/bin/kea-resampler-test
+./build/bin/kea-committer-test
+./build/bin/kea-controller-test
+```
 
 ## Design
 
-See [`docs/rfc-0001-kea.md`](docs/rfc-0001-kea.md) for the full RFC: architecture,
-data flow, the text-insertion design, risks, and a phased implementation plan.
+See [`docs/rfc-0001-kea.md`](docs/rfc-0001-kea.md) for architecture, risks, and the
+phased plan. Contributor notes are in [`AGENTS.md`](AGENTS.md).
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+MIT. See [`LICENSE`](LICENSE). Model weights are under their upstream licenses
+(NVIDIA Parakeet / OpenMDW as applicable).
