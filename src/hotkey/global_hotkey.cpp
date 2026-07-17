@@ -13,7 +13,10 @@ namespace kea {
 
 QKeySequence GlobalHotkey::defaultSequence()
 {
-    return QKeySequence(Qt::META | Qt::SHIFT | Qt::Key_V);
+    // Meta+Ctrl+X — two adjacent modifiers (palm on bottom-left) + X (no need
+    // to reach far). Mirrors the ergonomic pattern of Wispr Flow's Windows
+    // default (Ctrl+Win), adapted for Plasma's Meta convention.
+    return QKeySequence(Qt::META | Qt::CTRL | Qt::Key_X);
 }
 
 GlobalHotkey::GlobalHotkey(QObject *parent)

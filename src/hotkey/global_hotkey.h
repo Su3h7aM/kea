@@ -35,7 +35,8 @@ public:
 
     bool isRegistered() const { return m_registered; }
 
-    /// Default: Meta+Shift+V (unlikely to collide with system bindings).
+    /// Default: Meta+Ctrl+X (ergonomic: two adjacent mods + X; unlikely to
+    /// collide with system bindings).
     static QKeySequence defaultSequence();
 
 Q_SIGNALS:

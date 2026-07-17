@@ -261,7 +261,7 @@ Kirigami.ApplicationWindow {
                 wrapMode: Text.WordWrap
                 opacity: 0.7
                 text: i18nc("@info",
-                    "Hold the global hotkey (default Meta+Shift+V) while a text field " +
+                    "Hold the global hotkey (default Meta+Ctrl+X) while a text field " +
                     "is focused to dictate. Release to commit.\n\n" +
                     "Set the model path in Settings, or export KEA_MODEL=/path/to/model.gguf. " +
                     "Offline models (e.g. TDT) buffer audio until release; streaming EOU " +

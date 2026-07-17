@@ -23,7 +23,7 @@ and a free input-method seat on Plasma Wayland. Design details live in
 | Inference backends | **CPU** and **Vulkan** (runtime `dlopen`) |
 | Audio capture | **PipeWire** via Qt 6 Multimedia |
 | Text insertion | **Wayland `input-method-unstable-v1`** (KWin) |
-| Global hotkey | `KGlobalAccel` (default **Meta+Shift+V**) |
+| Global hotkey | `KGlobalAccel` (default **Meta+Ctrl+X**) |
 | Tray | `KStatusNotifierItem` |
 
 ## Quick start
@@ -50,7 +50,7 @@ cmake --build build
 2. **Download default model** (or place a streaming `.gguf` under
    `~/.local/share/kea/models/` and set the path).
 3. On Plasma **Wayland**, ensure no other IME (fcitx5/IBus) owns the seat.
-4. Focus a text field, hold **Meta+Shift+V**, speak, release to commit.
+4. Focus a text field, hold **Meta+Ctrl+X**, speak, release to commit.
 
 ### Tests
 
