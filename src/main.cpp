@@ -151,12 +151,8 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    // Eager-load only when the GGUF is present; otherwise wait for download.
-    if (settings.modelFileExists()) {
-        dictation.loadModel();
-    } else {
-        qCInfo(keaLog) << "no model at" << settings.modelPath() << "; skip eager load";
-    }
+    // Do NOT eager-load the model on startup. The app starts idle so the user
+    // can configure the model path and backend, then click Start to load.
 
     // Debug helper: KEA_AUTO_DICTATE_MS=N starts dictation after load and stops after N ms.
     const int autoMs = qEnvironmentVariableIntValue("KEA_AUTO_DICTATE_MS");

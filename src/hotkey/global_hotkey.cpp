@@ -9,14 +9,16 @@
 #include <KGlobalAccel>
 #include <KLocalizedString>
 
+#include "logging.h"
+
 namespace kea {
 
 QKeySequence GlobalHotkey::defaultSequence()
 {
-    // Meta+Ctrl+X — two adjacent modifiers (palm on bottom-left) + X (no need
-    // to reach far). Mirrors the ergonomic pattern of Wispr Flow's Windows
-    // default (Ctrl+Win), adapted for Plasma's Meta convention.
-    return QKeySequence(Qt::META | Qt::CTRL | Qt::Key_X);
+    // Ctrl+Shift+D (D for Dictation). Two left-side modifiers + D under the
+    // middle finger. Avoids Meta key (some Plasma setups intercept Meta+key
+    // at the compositor level, causing KGlobalAccel to miss the event).
+    return QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_D);
 }
 
 GlobalHotkey::GlobalHotkey(QObject *parent)
@@ -63,15 +65,15 @@ void GlobalHotkey::setSequence(const QKeySequence &seq)
 void GlobalHotkey::reregister()
 {
     const QList<QKeySequence> keys{m_sequence};
-    // setDefaultShortcut seeds the system-settings default; setShortcut registers.
-    KGlobalAccel::self()->setDefaultShortcut(m_action, keys);
-    const bool ok = KGlobalAccel::self()->setShortcut(m_action, keys, KGlobalAccel::NoAutoloading);
-    // Also try with Autoloading so a user-changed binding from System Settings
-    // is preferred on subsequent launches when we switch load flag later.
-    if (!ok) {
-        KGlobalAccel::self()->setShortcut(m_action, keys);
-    }
+    // Standard KDE pattern: setDefaultShortcut seeds the System Settings
+    // default; setShortcut (without NoAutoloading) respects any user override
+    // from System Settings while registering our key on first run.
+    KGlobalAccel::self()->setDefaultShortcut(m_action, keys, KGlobalAccel::NoAutoloading);
+    KGlobalAccel::self()->setShortcut(m_action, keys, KGlobalAccel::NoAutoloading);
+
     const bool now = !KGlobalAccel::self()->shortcut(m_action).isEmpty();
+    qCInfo(keaLog) << "hotkey registered:" << m_sequence.toString()
+                    << "active=" << now;
     if (now != m_registered) {
         m_registered = now;
         Q_EMIT registeredChanged();

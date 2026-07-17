@@ -85,7 +85,7 @@ cmake --build build
 
 ### Runtime flow (Phase 3)
 
-1. `GlobalHotkey` (default Meta+Ctrl+X) via `KGlobalAccel::globalShortcutActiveChanged` for hold-to-talk.
+1. `GlobalHotkey` (default Ctrl+Shift+D) via `KGlobalAccel::globalShortcutActiveChanged` for hold-to-talk.
 2. `DictationController` starts mic (`AudioRecorder`) and opens a parakeet stream on a **dedicated worker thread**.
 3. PCM blocks are queued to `ParakeetWorker::feedPcm`; finalized text is committed via `TextCommitter`.
 4. Hotkey release / tray Stop finalizes the stream and commits the tail.

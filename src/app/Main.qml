@@ -257,7 +257,7 @@ Kirigami.ApplicationWindow {
                 opacity: 0.7
                 text: i18nc("@info",
                     "Click Start to load the model, then hold the global hotkey " +
-                    "(default Meta+Ctrl+X) while a text field is focused to dictate. " +
+                    "(default Ctrl+Shift+D) while a text field is focused to dictate. " +
                     "Release to commit.\n\n" +
                     "Click Stop to unload the model and change the backend or model file.\n\n" +
                     "Set the model path above, or export KEA_MODEL=/path/to/model.gguf. " +

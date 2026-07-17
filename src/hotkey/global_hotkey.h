@@ -35,8 +35,8 @@ public:
 
     bool isRegistered() const { return m_registered; }
 
-    /// Default: Meta+Ctrl+X (ergonomic: two adjacent mods + X; unlikely to
-    /// collide with system bindings).
+    /// Default: Ctrl+Shift+D (D for Dictation). Avoids the Meta key which some
+    /// Plasma compositor configurations intercept before KGlobalAccel sees it.
     static QKeySequence defaultSequence();
 
 Q_SIGNALS:
