@@ -110,6 +110,7 @@ private:
     void setError(const QString &err);
     void beginListening();
     void stopCaptureOnly();
+    void teardownBackend();
     bool isBusy() const;
     /// If unloadModel() was deferred because a Draining session was still in
     /// flight, actually unload now that the session has resolved.

@@ -202,11 +202,16 @@ void DictationController::unloadModel()
     if (m_state == State::Listening || m_state == State::Starting) {
         cancel();
     }
+    teardownBackend();
+    setState(State::Idle);
+    setStatus(QStringLiteral("Idle"));
+}
+
+void DictationController::teardownBackend()
+{
     m_modelLoaded = false;
     m_modelLoadPending = false;
     Q_EMIT modelLoadedChanged();
-    setState(State::Idle);
-    setStatus(QStringLiteral("Idle"));
     qCInfo(keaLog) << "unloading model";
     QMetaObject::invokeMethod(m_worker, "unloadBackend", Qt::QueuedConnection);
 }
@@ -217,7 +222,7 @@ void DictationController::maybeUnloadAfterDrain()
         return;
     }
     m_unloadAfterDrain = false;
-    unloadModel();
+    teardownBackend();
 }
 
 void DictationController::onModelReady(bool ok, const QString &error)
@@ -242,9 +247,9 @@ void DictationController::onModelReady(bool ok, const QString &error)
 
 void DictationController::onModelUnloaded()
 {
-    // Worker confirmed the backend is torn down. State already set by
-    // unloadModel(); this just ensures consistency if called from elsewhere.
-    if (m_state == State::LoadingModel || m_state == State::Error) {
+    // Worker confirmed the backend is torn down. A deferred teardown may
+    // intentionally preserve a terminal Error or Cancelled status.
+    if (m_state == State::LoadingModel) {
         setState(State::Idle);
         setStatus(QStringLiteral("Idle"));
     }
@@ -252,6 +257,10 @@ void DictationController::onModelUnloaded()
 
 void DictationController::start()
 {
+    if (m_unloadAfterDrain) {
+        qCDebug(keaLog) << "start ignored while deferred unload is pending";
+        return;
+    }
     // Re-entrancy guard: while Starting/Listening/Draining, ignore extra starts.
     if (isBusy() && m_state != State::LoadingModel) {
         qCDebug(keaLog) << "start ignored, state=" << stateName();
