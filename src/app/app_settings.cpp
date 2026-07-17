@@ -47,6 +47,7 @@ void AppSettings::load()
     QSettings s(QStringLiteral("kea"), QStringLiteral("kea"));
     m_modelPath = s.value(QStringLiteral("modelPath"), defaultModelPath()).toString();
     m_backend = s.value(QStringLiteral("backend"), 0).toInt(); // default CPU
+    m_activationMode = s.value(QStringLiteral("activationMode"), 0).toInt();
     m_onboardingDone = s.value(QStringLiteral("onboardingDone"), false).toBool();
     const QString hot = s.value(QStringLiteral("hotkey"),
                                 GlobalHotkey::defaultSequence().toString(QKeySequence::PortableText))
@@ -75,6 +76,7 @@ void AppSettings::save() const
     s.setValue(QStringLiteral("modelPath"), m_modelPath);
     s.setValue(QStringLiteral("backend"), m_backend);
     s.setValue(QStringLiteral("hotkey"), m_hotkey.toString(QKeySequence::PortableText));
+    s.setValue(QStringLiteral("activationMode"), m_activationMode);
     s.setValue(QStringLiteral("onboardingDone"), m_onboardingDone);
 }
 
@@ -119,6 +121,17 @@ void AppSettings::setHotkeyString(const QString &s)
         seq = QKeySequence::fromString(s, QKeySequence::NativeText);
     }
     setHotkey(seq);
+}
+
+void AppSettings::setActivationMode(int mode)
+{
+    mode = (mode == 1) ? 1 : 0;
+    if (mode == m_activationMode) {
+        return;
+    }
+    m_activationMode = mode;
+    save();
+    Q_EMIT activationModeChanged();
 }
 
 void AppSettings::setOnboardingDone(bool done)

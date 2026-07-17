@@ -18,6 +18,7 @@ class AppSettings : public QObject
     Q_PROPERTY(QString modelPath READ modelPath WRITE setModelPath NOTIFY modelPathChanged)
     Q_PROPERTY(int backend READ backend WRITE setBackend NOTIFY backendChanged)
     Q_PROPERTY(QString hotkey READ hotkeyString WRITE setHotkeyString NOTIFY hotkeyChanged)
+    Q_PROPERTY(int activationMode READ activationMode WRITE setActivationMode NOTIFY activationModeChanged)
     Q_PROPERTY(bool onboardingDone READ onboardingDone WRITE setOnboardingDone NOTIFY onboardingDoneChanged)
     Q_PROPERTY(bool modelFileExists READ modelFileExists NOTIFY modelPathChanged)
 
@@ -36,6 +37,10 @@ public:
 
     QString hotkeyString() const { return m_hotkey.toString(QKeySequence::NativeText); }
     void setHotkeyString(const QString &s);
+
+    /// 0 = Push-to-talk (hold), 1 = Toggle (press to start/stop)
+    int activationMode() const { return m_activationMode; }
+    void setActivationMode(int mode);
 
     bool onboardingDone() const { return m_onboardingDone; }
     void setOnboardingDone(bool done);
@@ -57,12 +62,14 @@ Q_SIGNALS:
     void modelPathChanged();
     void backendChanged();
     void hotkeyChanged();
+    void activationModeChanged();
     void onboardingDoneChanged();
 
 private:
     QString m_modelPath;
     int m_backend = 0;
     QKeySequence m_hotkey;
+    int m_activationMode = 0; ///< 0=Push-to-talk, 1=Toggle
     bool m_onboardingDone = false;
 };
 

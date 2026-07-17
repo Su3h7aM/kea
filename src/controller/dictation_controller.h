@@ -38,6 +38,7 @@ class DictationController : public QObject
     Q_PROPERTY(bool listening READ isListening NOTIFY stateChanged)
     Q_PROPERTY(bool modelLoaded READ isModelLoaded NOTIFY modelLoadedChanged)
     Q_PROPERTY(bool canConfigure READ canConfigure NOTIFY modelLoadedChanged)
+    Q_PROPERTY(int activationMode READ activationModeInt NOTIFY activationModeChanged)
 
 public:
     enum class State {
@@ -71,12 +72,17 @@ public:
     /// editable. False once Start loads the model; true again after Stop.
     bool canConfigure() const { return !m_modelLoaded && !m_modelLoadPending; }
 
+    /// 0 = Push-to-talk (hold), 1 = Toggle (press to start/stop)
+    int activationModeInt() const { return static_cast<int>(m_activationMode); }
+    enum class ActivationMode { PushToTalk = 0, Toggle = 1 };
+
 public Q_SLOTS:
     void loadModel();
     void unloadModel();
     void start();
     void stop();
     void cancel();
+    void setActivationMode(int mode);
 
 Q_SIGNALS:
     void stateChanged();
@@ -84,9 +90,11 @@ Q_SIGNALS:
     void levelChanged();
     void lastErrorChanged();
     void modelLoadedChanged();
+    void activationModeChanged();
 
 private Q_SLOTS:
     void onHotkeyActive(bool active);
+    void onHotkeyTriggered();
     void onPcmBlock(const QList<float> &samples);
     void onLevel(float level);
     void onModelReady(bool ok, const QString &error);
@@ -121,6 +129,7 @@ private:
     bool m_startAfterLoad = false;
     bool m_stopWhenStarted = false; ///< release arrived while still Starting
     bool m_offlineMode = false;
+    ActivationMode m_activationMode = ActivationMode::PushToTalk;
 };
 
 } // namespace kea

@@ -58,6 +58,13 @@ DictationController::DictationController(AppSettings *settings, QObject *parent)
             m_modelLoaded = false;
             Q_EMIT modelLoadedChanged();
         });
+        connect(m_settings, &AppSettings::activationModeChanged, this, [this]() {
+            setActivationMode(m_settings->activationMode());
+        });
+        // Read the initial activation mode.
+        m_activationMode = (m_settings->activationMode() == 1)
+                            ? ActivationMode::Toggle
+                            : ActivationMode::PushToTalk;
     }
 }
 
@@ -80,11 +87,30 @@ void DictationController::setHotkey(GlobalHotkey *hotkey)
     }
     m_hotkey = hotkey;
     if (m_hotkey) {
-        // Push-to-talk: press = start, release = stop. Do NOT also connect
-        // triggered() — KGlobalAccel fires both and that double-started sessions.
-        connect(m_hotkey, &GlobalHotkey::activeChanged,
-                this, &DictationController::onHotkeyActive);
+        if (m_activationMode == ActivationMode::Toggle) {
+            // Toggle: each discrete press flips start/stop.
+            connect(m_hotkey, &GlobalHotkey::triggered,
+                    this, &DictationController::onHotkeyTriggered);
+        } else {
+            // Push-to-talk: press = start, release = stop.
+            connect(m_hotkey, &GlobalHotkey::activeChanged,
+                    this, &DictationController::onHotkeyActive);
+        }
     }
+}
+
+void DictationController::setActivationMode(int mode)
+{
+    const auto newMode = (mode == 1) ? ActivationMode::Toggle : ActivationMode::PushToTalk;
+    if (newMode == m_activationMode) {
+        return;
+    }
+    m_activationMode = newMode;
+    // Re-wire the hotkey connections.
+    if (m_hotkey) {
+        setHotkey(m_hotkey);
+    }
+    Q_EMIT activationModeChanged();
 }
 
 bool DictationController::isBusy() const
@@ -408,6 +434,16 @@ void DictationController::onHotkeyActive(bool active)
     } else {
         // Release ends the utterance (push-to-talk).
         stop();
+    }
+}
+
+void DictationController::onHotkeyTriggered()
+{
+    qCDebug(keaLog) << "hotkey triggered (toggle) state=" << stateName();
+    if (isBusy()) {
+        stop();
+    } else {
+        start();
     }
 }
 

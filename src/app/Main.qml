@@ -212,6 +212,17 @@ Kirigami.ApplicationWindow {
                     }
                 }
 
+                Controls.ComboBox {
+                    Kirigami.FormData.label: i18nc("@label", "Activation")
+                    model: [i18nc("@item", "Push to talk (hold)"),
+                            i18nc("@item", "Toggle (press to start/stop)")]
+                    currentIndex: _settings ? _settings.activationMode : 0
+                    onActivated: (index) => {
+                        if (_settings)
+                            _settings.activationMode = index
+                    }
+                }
+
                 Controls.Button {
                     text: _downloader && _downloader.busy
                           ? i18nc("@action:button", "Cancel download")
