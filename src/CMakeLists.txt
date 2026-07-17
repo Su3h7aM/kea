@@ -32,6 +32,8 @@ target_link_libraries(kea
         KF6::IconThemes
         KF6::GlobalAccel
         KF6::StatusNotifierItem
+        kea_audio
+        kea_inference
 )
 
 install(TARGETS kea ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
@@ -39,6 +41,35 @@ install(TARGETS kea ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 # --- parakeet.cpp: fetch + build the two .so variants (CPU + Vulkan) ---
 # Sets KEA_PARAKEET_CPU_LIB / KEA_PARAKEET_VULKAN_LIB (empty when not built).
 include(${CMAKE_SOURCE_DIR}/cmake/parakeet.cmake)
+
+# --- DSP lib: resampler + WAV loader (no Qt, no model needed). ---
+add_library(kea_dsp STATIC
+    audio/resampler.h
+    audio/resampler.cpp
+    audio/wav_loader.h
+    audio/wav_loader.cpp
+)
+target_include_directories(kea_dsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+# --- Audio capture lib: QAudioSource (PipeWire) wrapper, links Multimedia. ---
+add_library(kea_audio STATIC
+    audio/audio_recorder.h
+    audio/audio_recorder.cpp
+)
+target_include_directories(kea_audio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(kea_audio
+    PUBLIC
+        Qt6::Core
+        kea_dsp
+    PRIVATE
+        Qt6::Multimedia
+)
+
+# --- Resampler unit test (headless, pure DSP). ---
+add_executable(kea-resampler-test resampler_test.cpp)
+target_link_libraries(kea-resampler-test PRIVATE kea_dsp)
+enable_testing()
+add_test(NAME resampler COMMAND kea-resampler-test)
 
 # --- Inference static lib: the dlopen loader. ---
 # Compiles without the upstream header (opaque types declared in the .cpp), so
@@ -67,4 +98,10 @@ if(KEA_BUILD_PARAKEET)
     target_link_libraries(kea-parakeet-smoke PRIVATE Qt6::Core kea_inference)
     add_dependencies(kea-parakeet-smoke parakeet_all)
     install(TARGETS kea-parakeet-smoke ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
+
+    # --- Phase 1 smoke test: streaming pipeline (WAV -> 16k -> stream -> text). ---
+    add_executable(kea-stream-smoke stream_smoke.cpp)
+    target_link_libraries(kea-stream-smoke PRIVATE Qt6::Core kea_dsp kea_inference)
+    add_dependencies(kea-stream-smoke parakeet_all)
+    install(TARGETS kea-stream-smoke ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 endif()

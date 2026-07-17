@@ -34,6 +34,19 @@ struct TranscriptionResult {
     QString text;          ///< transcript on success, error message on failure
 };
 
+/// Result of one streaming feed: newly-finalized text + the EOU/EOB event mask.
+struct StreamFeedResult {
+    bool ok = false;
+    QString text;          ///< newly-finalized text ("" if none this call)
+    int eouMask = 0;       ///< PARAKEET_EVENT_EOU | PARAKEET_EVENT_EOB bitmask
+    QString error;         ///< set when ok == false
+};
+
+// EOU/EOB event bits (match parakeet_capi.h). Defined here so callers don't
+// need the upstream header.
+constexpr int kParakeetEventEou = 1; // end of utterance
+constexpr int kParakeetEventEob = 2; // end of backchannel
+
 /// Opaque parakeet context (parakeet_ctx*), wrapped so callers don't see the
 /// C API types directly. Owned by ParakeetBackend.
 class ParakeetCtxHandle;
@@ -63,6 +76,27 @@ public:
     /// Transcribe a WAV file (offline path, default decoder). Phase 0 smoke.
     TranscriptionResult transcribePath(const QString &wavPath);
 
+    // --- Streaming (parakeet_realtime_eou_120m-v1) ---
+    // One active session at a time. All stream_* calls must happen on the same
+    // thread (parakeet's C-API is per-context non-thread-safe).
+
+    /// Open a streaming session over the loaded model. `lang` selects the
+    /// language prompt for multilingual models ("en"/"de"/"auto"; empty = model
+    /// default). Returns false if not a streaming model.
+    bool streamBegin(const QString &lang = {});
+
+    /// Feed a block of 16 kHz mono float PCM. Returns the text finalized since
+    /// the last call plus any EOU/EOB event that fired.
+    StreamFeedResult streamFeed(const float *pcm, int nSamples);
+
+    /// Flush the end-of-stream tail. Returns the final newly-finalized text.
+    StreamFeedResult streamFinalize();
+
+    /// Free the active streaming session (no-op if none).
+    void streamEnd();
+
+    bool hasStream() const { return m_stream != nullptr; }
+
     bool isLoaded() const { return m_handle != nullptr; }
     bool hasModel() const { return m_ctx != nullptr; }
     QString lastError() const { return m_lastError; }
@@ -72,6 +106,7 @@ private:
 
     void *m_handle = nullptr;   ///< dlopen handle
     ParakeetCtxHandle *m_ctx = nullptr; ///< parakeet_ctx (opaque)
+    struct parakeet_stream *m_stream = nullptr; ///< active streaming session
     QString m_lastError;
 
     // Resolved function pointers (set by load()).

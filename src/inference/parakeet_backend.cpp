@@ -17,11 +17,14 @@
 // in Phase 1 alongside the streaming symbols.
 extern "C" {
 typedef struct parakeet_ctx parakeet_ctx;
+typedef struct parakeet_stream parakeet_stream;
 }
 
 namespace kea {
 
-// Mirrors the C-API symbols Kea depends on (offline path for Phase 0).
+// Mirrors the C-API symbols Kea depends on. The streaming symbols are resolved
+// lazily on the first streamBegin(), so a backend without a streaming model
+// still loads.
 struct ParakeetBackend::Symbols {
     int (*capi_abi_version)();
     parakeet_ctx *(*capi_load)(const char *);
@@ -29,6 +32,12 @@ struct ParakeetBackend::Symbols {
     char *(*capi_transcribe_path)(parakeet_ctx *, const char *, int);
     void (*capi_free_string)(char *);
     const char *(*capi_last_error)(parakeet_ctx *);
+    // Streaming.
+    parakeet_stream *(*capi_stream_begin)(parakeet_ctx *);
+    parakeet_stream *(*capi_stream_begin_lang)(parakeet_ctx *, const char *);
+    char *(*capi_stream_feed)(parakeet_stream *, const float *, int, int *);
+    char *(*capi_stream_finalize)(parakeet_stream *);
+    void (*capi_stream_free)(parakeet_stream *);
 };
 
 // Thin owner so the header doesn't expose parakeet_ctx to QML-facing code.
@@ -46,6 +55,7 @@ ParakeetBackend::ParakeetBackend()
 
 ParakeetBackend::~ParakeetBackend()
 {
+    streamEnd();
     if (m_sym && m_sym->capi_free && m_ctx->ctx) {
         m_sym->capi_free(m_ctx->ctx);
     }
@@ -92,6 +102,14 @@ bool ParakeetBackend::load(ParakeetDevice device)
     m_sym->capi_transcribe_path = reinterpret_cast<char *(*)(parakeet_ctx *, const char *, int)>(dlsym(m_handle, "parakeet_capi_transcribe_path"));
     m_sym->capi_free_string = reinterpret_cast<void (*)(char *)>(dlsym(m_handle, "parakeet_capi_free_string"));
     m_sym->capi_last_error = reinterpret_cast<const char *(*)(parakeet_ctx *)>(dlsym(m_handle, "parakeet_capi_last_error"));
+
+    // Streaming symbols (optional: only present if the lib was built with the
+    // streaming path, which it always is; resolved here so streamBegin works).
+    m_sym->capi_stream_begin = reinterpret_cast<parakeet_stream *(*)(parakeet_ctx *)>(dlsym(m_handle, "parakeet_capi_stream_begin"));
+    m_sym->capi_stream_begin_lang = reinterpret_cast<parakeet_stream *(*)(parakeet_ctx *, const char *)>(dlsym(m_handle, "parakeet_capi_stream_begin_lang"));
+    m_sym->capi_stream_feed = reinterpret_cast<char *(*)(parakeet_stream *, const float *, int, int *)>(dlsym(m_handle, "parakeet_capi_stream_feed"));
+    m_sym->capi_stream_finalize = reinterpret_cast<char *(*)(parakeet_stream *)>(dlsym(m_handle, "parakeet_capi_stream_finalize"));
+    m_sym->capi_stream_free = reinterpret_cast<void (*)(parakeet_stream *)>(dlsym(m_handle, "parakeet_capi_stream_free"));
 
     if (!m_sym->capi_abi_version || !m_sym->capi_load || !m_sym->capi_free
         || !m_sym->capi_transcribe_path || !m_sym->capi_free_string || !m_sym->capi_last_error) {
@@ -144,6 +162,78 @@ TranscriptionResult ParakeetBackend::transcribePath(const QString &wavPath)
 void ParakeetBackend::setError(const QString &msg)
 {
     m_lastError = msg;
+}
+
+bool ParakeetBackend::streamBegin(const QString &lang)
+{
+    if (!hasModel()) {
+        setError(QStringLiteral("no model loaded"));
+        return false;
+    }
+    streamEnd();
+    if (!lang.isEmpty() && m_sym->capi_stream_begin_lang) {
+        m_stream = m_sym->capi_stream_begin_lang(m_ctx->ctx, lang.toUtf8().constData());
+    } else {
+        if (!m_sym->capi_stream_begin) {
+            setError(QStringLiteral("stream_begin symbol missing"));
+            return false;
+        }
+        m_stream = m_sym->capi_stream_begin(m_ctx->ctx);
+    }
+    if (!m_stream) {
+        setError(QStringLiteral("stream_begin failed (not a streaming model?): %1")
+                     .arg(QString::fromUtf8(m_sym->capi_last_error(m_ctx->ctx))));
+        return false;
+    }
+    return true;
+}
+
+StreamFeedResult ParakeetBackend::streamFeed(const float *pcm, int nSamples)
+{
+    StreamFeedResult r;
+    if (!hasStream()) {
+        r.error = QStringLiteral("no active stream");
+        return r;
+    }
+    int eou = 0;
+    char *text = m_sym->capi_stream_feed(m_stream, pcm, nSamples, &eou);
+    if (!text) {
+        r.error = QStringLiteral("stream_feed failed: %1")
+                      .arg(QString::fromUtf8(m_sym->capi_last_error(m_ctx->ctx)));
+        return r;
+    }
+    r.ok = true;
+    r.text = QString::fromUtf8(text);
+    r.eouMask = eou;
+    m_sym->capi_free_string(text);
+    return r;
+}
+
+StreamFeedResult ParakeetBackend::streamFinalize()
+{
+    StreamFeedResult r;
+    if (!hasStream()) {
+        r.error = QStringLiteral("no active stream");
+        return r;
+    }
+    char *text = m_sym->capi_stream_finalize(m_stream);
+    if (!text) {
+        r.error = QStringLiteral("stream_finalize failed: %1")
+                      .arg(QString::fromUtf8(m_sym->capi_last_error(m_ctx->ctx)));
+        return r;
+    }
+    r.ok = true;
+    r.text = QString::fromUtf8(text);
+    m_sym->capi_free_string(text);
+    return r;
+}
+
+void ParakeetBackend::streamEnd()
+{
+    if (m_stream && m_sym && m_sym->capi_stream_free) {
+        m_sym->capi_stream_free(m_stream);
+    }
+    m_stream = nullptr;
 }
 
 } // namespace kea
