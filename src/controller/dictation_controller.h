@@ -110,6 +110,7 @@ private:
     void setError(const QString &err);
     void beginListening();
     void stopCaptureOnly();
+    /// Tear down the worker backend without changing controller state or status.
     void teardownBackend();
     bool isBusy() const;
     /// If unloadModel() was deferred because a Draining session was still in
