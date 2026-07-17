@@ -67,8 +67,14 @@ public:
     static QString libraryPath(ParakeetDevice device);
 
     /// dlopen the variant and resolve symbols. Returns false on failure
-    /// (sets lastError()).
+    /// (sets lastError()). Automatically unloads any previously loaded variant
+    /// first — see the SONAME collision note in the .cpp.
     bool load(ParakeetDevice device);
+
+    /// Tear down the current variant: end stream, free model ctx, dlclose.
+    /// Called automatically by load() before switching; also safe to call
+    /// directly (e.g. on shutdown).
+    void unload();
 
     /// Load a model GGUF into the backend's context. Returns false on failure.
     bool loadModel(const QString &ggufPath);

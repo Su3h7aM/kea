@@ -80,13 +80,7 @@ ParakeetBackend::ParakeetBackend()
 
 ParakeetBackend::~ParakeetBackend()
 {
-    streamEnd();
-    if (m_sym && m_sym->capi_free && m_ctx->ctx) {
-        m_sym->capi_free(m_ctx->ctx);
-    }
-    if (m_handle) {
-        dlclose(m_handle);
-    }
+    unload();
 }
 
 QString ParakeetBackend::libraryPath(ParakeetDevice device)
@@ -141,8 +135,34 @@ QString ParakeetBackend::libraryPath(ParakeetDevice device)
     return {};
 }
 
+void ParakeetBackend::unload()
+{
+    streamEnd();
+    if (m_sym && m_sym->capi_free && m_ctx && m_ctx->ctx) {
+        m_sym->capi_free(m_ctx->ctx);
+        m_ctx->ctx = nullptr;
+    }
+    if (m_handle) {
+        dlclose(m_handle);
+        m_handle = nullptr;
+    }
+    // Reset all symbol pointers so a stale fn pointer can't be called after
+    // the backing library is unloaded.
+    m_sym = std::make_unique<Symbols>();
+}
+
 bool ParakeetBackend::load(ParakeetDevice device)
 {
+    // Tear down any previously loaded variant *before* dlopening the new one.
+    // Both CPU and Vulkan variants ship their own libggml.so.0 / libggml-cpu.so.0
+    // / libggml-base.so.0 with identical SONAMEs but different binaries. If the
+    // old variant's ggml libs are still mapped when the new variant is dlopened,
+    // the dynamic linker dedupes by SONAME and the "new" backend silently runs
+    // on the old variant's ggml dispatch table — no GPU init, ABI mismatches,
+    // and eventual crashes. dlclose drops the refcount to 0 so the linker
+    // actually unloads the old ggml chain.
+    unload();
+
     const QString path = libraryPath(device);
     if (path.isEmpty()) {
         setError(QStringLiteral(
