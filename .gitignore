@@ -1,0 +1,51 @@
+# --- Build outputs ---
+/build/
+/build-*/
+build/
+
+# --- CMake ---
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeUserPresets.json
+compile_commands.json
+install_manifest.txt
+
+# --- Compiled artifacts ---
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# --- Qt / QML cache & generated ---
+*.qmlc
+*.jsc
+*.qmltc
+.qmlproject.user*
+qmlcachingdir/
+/.qtcreator/
+*.qbs.user
+
+# --- KDE / KDevelop ---
+*.kdev4
+*.kdev-sessions
+.kdev4/
+
+# --- parakeet.cpp model cache (downloaded at runtime) ---
+models/*.gguf
+
+# --- IDE / editor ---
+/.vscode/
+/.idea/
+/.cache/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
