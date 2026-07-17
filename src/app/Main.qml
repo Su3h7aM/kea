@@ -251,6 +251,38 @@ Kirigami.ApplicationWindow {
                 }
             }
 
+            // --- Hotkey (always editable — independent of model state) ---
+            Kirigami.FormLayout {
+                Layout.fillWidth: true
+
+                Controls.TextField {
+                    id: hotkeyField
+                    Kirigami.FormData.label: i18nc("@label", "Hotkey")
+                    text: _hotkey ? _hotkey.sequenceDisplay : ""
+                    placeholderText: i18nc("@info:placeholder", "e.g. Ctrl+Shift+D")
+                    Layout.fillWidth: true
+                    onEditingFinished: {
+                        if (_settings)
+                            _settings.hotkeyString = text
+                    }
+                    // Refresh display when the hotkey changes programmatically.
+                    Connections {
+                        target: _hotkey
+                        function onSequenceChanged() {
+                            hotkeyField.text = _hotkey.sequenceDisplay
+                        }
+                    }
+                }
+
+                Controls.Label {
+                    Kirigami.FormData.label: i18nc("@label", "Registered")
+                    text: _hotkey && _hotkey.registered
+                          ? i18nc("@info", "✓ Yes")
+                          : i18nc("@info", "✗ No — check System Settings")
+                    opacity: 0.7
+                }
+            }
+
             Controls.Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap

@@ -111,7 +111,14 @@ void AppSettings::setHotkey(const QKeySequence &seq)
 
 void AppSettings::setHotkeyString(const QString &s)
 {
-    setHotkey(QKeySequence::fromString(s, QKeySequence::NativeText));
+    // Accept both portable ("Ctrl+Shift+D") and native ("Ctrl+Shift+D" on Linux)
+    // formats. Try portable first since that's what the config file uses and
+    // what a user is most likely to type in the text field.
+    QKeySequence seq = QKeySequence::fromString(s, QKeySequence::PortableText);
+    if (seq.isEmpty()) {
+        seq = QKeySequence::fromString(s, QKeySequence::NativeText);
+    }
+    setHotkey(seq);
 }
 
 void AppSettings::setOnboardingDone(bool done)
