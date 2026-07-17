@@ -53,18 +53,46 @@ The default remote bookmark is `main` on GitHub.
 Write commit titles that describe what changed in the code. Do not put issue numbers,
 ticket IDs, or "Closes #N" in the title — link issues in the body when useful.
 
-## Build (once source exists)
+## Build
 
-Planned toolchain: CMake + extra-cmake-modules, Qt 6 (Core, Qml, Quick, QuickControls2,
+Toolchain: CMake + extra-cmake-modules, Qt 6 (Core, Gui, Qml, Quick, QuickControls2,
 Multimedia, WaylandClient), KF 6 (Kirigami, I18n, CoreAddons, Config, GlobalAccel,
-StatusNotifierItem, IconThemes). parakeet.cpp is vendored as a submodule under
-`3rdparty/parakeet.cpp` and built as two shared libraries (CPU and Vulkan) with an
-identical flat C-API surface.
+StatusNotifierItem, IconThemes). parakeet.cpp is **not** a submodule — it is fetched and
+built at `cmake --build` time by `cmake/parakeet.cmake` (via `ExternalProject_Add`) into
+two self-contained `libparakeet.so` variants (CPU and Vulkan), which Kea loads at runtime
+via `dlopen`.
+
+### GUI only (fast, no ASR build)
 
 ```
-cmake -B build
+cmake -B build -DKEA_BUILD_PARAKEET=OFF
 cmake --build build
+./build/bin/kea        # run (or QT_QPA_PLATFORM=offscreen ./build/bin/kea headless)
 ```
+
+### With the parakeet backends (fetches + builds parakeet.cpp + ggml, slow on first run)
+
+```
+cmake -B build -DKEA_BUILD_PARAKEET=ON
+cmake --build build --target parakeet_all   # builds CPU (+Vulkan if available)
+cmake --build build                          # builds kea + kea-parakeet-smoke
+```
+
+The smoke test loads a backend and transcribes a WAV:
+
+```
+./build/bin/kea-parakeet-smoke <cpu|vulkan> <model.gguf> <audio.wav>
+```
+
+### Conventions
+
+- KDE builds with `QT_NO_KEYWORDS`: use `Q_SIGNALS`/`Q_SLOTS`/`Q_EMIT`, never bare
+  `signals:`/`slots:`/`emit`.
+- The Kirigami pattern is `add_executable(kea)` **before** `ecm_add_qml_module(kea ...)`,
+  otherwise the target becomes a shared plugin with no `main()` entry point.
+- The dlopen loader (`src/inference/parakeet_backend.*`) declares its own opaque
+  `parakeet_ctx` and does **not** include the upstream `parakeet_capi.h`, so it compiles
+  before the build-time fetch has run.
 
 ## Key invariants (do not regress)
 
@@ -85,4 +113,5 @@ the text **newly finalized** since the last call and an EOU/EOB event bitmask. P
 delivers 48 kHz int16 audio, so Kea resamples 48 kHz → 16 kHz and int16 → f32 before
 feeding. On hotkey-up, `parakeet_capi_stream_finalize` flushes the tail.
 
-See `include/parakeet_capi.h` in `3rdparty/parakeet.cpp` for the authoritative API.
+See `include/parakeet_capi.h` in the upstream parakeet.cpp repo (fetched at build time into
+`build/parakeet/<variant>-src/`) for the authoritative API.
