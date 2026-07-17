@@ -61,8 +61,8 @@ set(KEA_PARAKEET_GIT_TAG "master" CACHE STRING "parakeet.cpp git ref to fetch")
 
 add_subdirectory(src)
 
-install(PROGRAMS org.kde.kea.desktop DESTINATION ${KDE_INSTALL_APPDIR})
-install(FILES org.kde.kea.metainfo.xml DESTINATION ${KDE_INSTALL_METAINFODIR})
+install(PROGRAMS io.github.su3h7am.kea.desktop DESTINATION ${KDE_INSTALL_APPDIR})
+install(FILES io.github.su3h7am.kea.metainfo.xml DESTINATION ${KDE_INSTALL_METAINFODIR})
 install(FILES data/models.json DESTINATION ${KDE_INSTALL_DATADIR}/kea)
 
 feature_summary(WHAT ALL INCLUDE_QUIET_PACKAGES FATAL_ON_MISSING_REQUIRED_PACKAGES)

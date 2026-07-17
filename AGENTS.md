@@ -22,6 +22,15 @@ transcribed text streams into the focused text field. Everything runs on-device.
 The authoritative design is [`docs/rfc-0001-kea.md`](docs/rfc-0001-kea.md). Read it
 before making architectural changes.
 
+### App ID: not `org.kde.*`
+
+Kea is built *for* KDE Plasma (Kirigami UI, KGlobalAccel, StatusNotifierItem) but is
+**not** an official KDE project and has no KDE affiliation. The app ID, QML module URI,
+logging category, and AppStream `<id>`/`<developer id>` all use `io.github.su3h7am.kea`
+(GitHub-username-based reverse-DNS), never `org.kde.*` — that namespace is reserved for
+software actually hosted under KDE. Keep this in mind when adding new identifiers
+(D-Bus service names, config domains, etc.).
+
 ## Status
 
 **Pre-alpha (Phases 0–4 implemented).** Module layout:

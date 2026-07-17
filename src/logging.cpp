@@ -4,4 +4,4 @@
  */
 #include "logging.h"
 
-Q_LOGGING_CATEGORY(keaLog, "org.kde.kea")
+Q_LOGGING_CATEGORY(keaLog, "io.github.su3h7am.kea")

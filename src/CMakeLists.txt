@@ -1,7 +1,7 @@
 # --- Kea QML module + executable (the settings window / tray host) ---
 add_executable(kea)
 ecm_add_qml_module(kea
-    URI org.kde.kea
+    URI io.github.su3h7am.kea
     VERSION 1.0
 )
 

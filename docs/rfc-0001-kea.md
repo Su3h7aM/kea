@@ -139,7 +139,7 @@ Wayland clients **cannot inject keyboard events** into surfaces they don't own �
 ```
 kea/
 ├── CMakeLists.txt                 # top-level: ECM, Qt6, KF6, vendored parakeet
-├── org.kde.kea.desktop
+├── io.github.su3h7am.kea.desktop
 ├── 3rdparty/
 │   └── parakeet.cpp/              # submodule; builds two .so variants
 ├── data/
@@ -274,7 +274,7 @@ Persisted via `KConfig` (or `QSettings`). Settings window built with Kirigami `F
 - **Toolchain:** CMake + ECM (KDE's `KDEInstallDirs`/`KDECMakeSettings`/`KDECompilerSettings`), Qt6, KF6 (Kirigami, I18n, CoreAddons, Config, GlobalAccel, StatusNotifierItem, IconThemes), Qt6 Multimedia, Qt6 Wayland (Client), `extra-cmake-modules`.
 - **parakeet.cpp:** vendored as a git submodule under `3rdparty/parakeet.cpp`; built as two shared-lib targets (cpu / vulkan) via `add_subdirectory` with the appropriate `-D` flags. `third_party/ggml` comes with the submodule.
 - **Wayland protocol:** `input-method-unstable-v2.xml` vendored under `data/protocols`; fed to `qt_generate_wayland_protocol_client_sources`.
-- **QML module:** `ecm_add_qml_module(kea URI org.kde.kea)` + `ecm_target_qml_sources`; C++ types registered with `QML_ELEMENT`/`QML_SINGLETON`.
+- **QML module:** `ecm_add_qml_module(kea URI io.github.su3h7am.kea)` + `ecm_target_qml_sources`; C++ types registered with `QML_ELEMENT`/`QML_SINGLETON`.
 - **Packaging:** produce a Flatpak (preferred for portal/sandbox consistency) and/or an AppImage, plus distro `.desktop` + AppStream metadata. The Vulkan `.so` ships alongside; Flatpak needs Vulkan + PipeWire + `input-method` portal permissions.
 
 ---
