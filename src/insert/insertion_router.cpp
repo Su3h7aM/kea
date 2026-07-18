@@ -86,9 +86,14 @@ bool InsertionRouter::tryFakeInput(const QString &text, QString *errorOut)
     }
     if (!m_fakeInput->protocolAvailable()) {
         if (errorOut) {
-            *errorOut = QStringLiteral("fake_input protocol not available");
+            *errorOut = QStringLiteral(
+                "fake_input not bound (need X-KDE-Wayland-Interfaces=org_kde_kwin_fake_input "
+                "on installed .desktop; KWin blacklists it otherwise)");
         }
-        qWarning() << "Kea: insert fake_input skipped — protocol not bound";
+        qWarning()
+            << "Kea: insert fake_input skipped — protocol not bound."
+            << "KWin hides org_kde_kwin_fake_input unless the app desktop file"
+            << "declares X-KDE-Wayland-Interfaces=org_kde_kwin_fake_input.";
         return false;
     }
     if (!m_fakeInput->typeText(text)) {

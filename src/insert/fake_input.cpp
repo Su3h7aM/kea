@@ -5,6 +5,7 @@
 #include "fake_input.h"
 
 #include <QDebug>
+#include <QMetaObject>
 #include <QVector>
 
 #include <wayland-client-protocol.h>
@@ -22,12 +23,29 @@ FakeInputClient::FakeInputClient(QObject *parent)
     connect(this, &QWaylandClientExtension::activeChanged, this, [this]() {
         if (!isActive()) {
             m_authenticated = false;
-            qInfo() << "Kea: fake_input protocol lost";
+            qInfo() << "Kea: fake_input protocol lost / not advertised";
         } else {
             qInfo() << "Kea: fake_input protocol bound (org_kde_kwin_fake_input)";
         }
         Q_EMIT availabilityChanged(isActive());
     });
+
+    // After registry settles, explain a missing global (usual cause: desktop file).
+    QMetaObject::invokeMethod(
+        this,
+        [this]() {
+            if (!isActive()) {
+                qWarning()
+                    << "Kea: org_kde_kwin_fake_input not available on this seat."
+                    << "KWin only shows it if the app .desktop lists"
+                    << "X-KDE-Wayland-Interfaces=org_kde_kwin_fake_input"
+                    << "and KWin can match Exec= to this process."
+                    << "Install io.github.su3h7am.kea.desktop system-wide and run"
+                    << "the installed `kea` binary (not only build/bin/kea)."
+                    << "Dev override on KWin: KWIN_WAYLAND_NO_PERMISSION_CHECKS=1";
+            }
+        },
+        Qt::QueuedConnection);
 }
 
 FakeInputClient::~FakeInputClient() = default;

@@ -14,3 +14,7 @@ StartupNotify=true
 StartupWMClass=kea
 X-KDE-StartupNotify=true
 X-GNOME-UsesNotifications=false
+# KWin blacklists org_kde_kwin_fake_input unless listed here (X-KDE-Wayland-Interfaces).
+# Required for InsertionRouter step 2. Install this desktop file; Exec= must match
+# the running binary (use installed `kea`, not only an uninstalled build tree path).
+X-KDE-Wayland-Interfaces=org_kde_kwin_fake_input
