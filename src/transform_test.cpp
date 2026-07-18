@@ -100,6 +100,8 @@ public:
 int main(int argc, char *argv[])
 {
     qRegisterMetaType<QList<float>>("QList<float>");
+    // Never write unit-test settings into the user's ~/.config/kea/kea.conf.
+    qputenv("KEA_SETTINGS_FILE", QByteArray("/tmp/kea-transform-test-settings.ini"));
     QCoreApplication app(argc, argv);
 
     std::printf("[transform] style helpers\n");

@@ -4,6 +4,7 @@
  */
 #include "dictation_controller.h"
 
+#include <QFileInfo>
 #include <QList>
 #include <QMetaObject>
 #include <QMetaType>
@@ -73,6 +74,9 @@ void DictationController::setupTransform(TextTransformer *externalTransformer)
     m_ownTransformer = true;
     m_transformer = new LlamaTransformer;
     m_transformWorker = new TransformWorker(m_transformer);
+    // Both live on the transform thread — llama.cpp is not thread-safe across
+    // contexts if we call load/transform from different threads.
+    m_transformer->moveToThread(&m_transformThread);
     m_transformWorker->moveToThread(&m_transformThread);
     connect(&m_transformThread, &QThread::finished, m_transformWorker, &QObject::deleteLater);
     connect(&m_transformThread, &QThread::finished, m_transformer, &QObject::deleteLater);
@@ -465,12 +469,28 @@ void DictationController::ensureTransformModelLoaded()
     if (!m_settings || !m_transformWorker || m_transformLoadPending) {
         return;
     }
-    const QString path = m_settings->llmModelPath();
-    if (path.isEmpty() || !m_settings->llmModelFileExists()) {
+    // Heal missing / test-polluted paths (e.g. /tmp/kea-fake-llm.gguf) by
+    // picking a real GGUF under ~/.local/share/kea/llm-models/.
+    const QString path = m_settings->resolveLlmModelPath();
+    if (path.isEmpty() || !QFileInfo::exists(path)) {
         m_transformModelReady = false;
+        qCWarning(keaLog) << "LLM model file missing; download LFM under"
+                          << AppSettings::defaultLlmModelsDir()
+                          << "configured path was" << m_settings->llmModelPath();
+        if (postProcessActive()) {
+            setStatus(QStringLiteral(
+                "LLM model missing — download LFM2.5 in Settings (Transcript mode)"));
+        }
+        return;
+    }
+    if (m_transformModelReady) {
+        // Already loaded for this session.
         return;
     }
     m_transformLoadPending = true;
+    m_transformModelReady = false;
+    qCInfo(keaLog) << "loading LLM model" << path;
+    setStatus(QStringLiteral("Loading LLM…"));
     QMetaObject::invokeMethod(m_transformWorker, "loadModel", Qt::QueuedConnection,
                               Q_ARG(QString, path));
 }
@@ -481,6 +501,12 @@ void DictationController::onTransformModelReady(bool ok, const QString &error)
     m_transformModelReady = ok;
     if (!ok && postProcessActive()) {
         qCWarning(keaLog) << "LLM model not ready:" << error;
+        setStatus(QStringLiteral("LLM load failed: %1").arg(error));
+    } else if (ok) {
+        qCInfo(keaLog) << "LLM model ready";
+        if (!m_transformInFlight && m_state == State::Idle) {
+            setStatus(QStringLiteral("Ready — hold hotkey to dictate"));
+        }
     }
 }
 
@@ -491,6 +517,9 @@ void DictationController::queueTransform(const QString &utterance)
     m_transformInFlight = true;
     setStatus(QStringLiteral("Polishing…"));
     const int style = m_settings ? m_settings->postProcessStyle() : 0;
+    // Ensure load is queued *before* transform on the same worker thread so
+    // load completes first when both were just requested.
+    ensureTransformModelLoaded();
     QMetaObject::invokeMethod(m_transformWorker, "transform", Qt::QueuedConnection,
                               Q_ARG(QString, utterance),
                               Q_ARG(int, style),

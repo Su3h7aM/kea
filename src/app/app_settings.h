@@ -66,6 +66,11 @@ public:
     void setLlmModelPath(const QString &path);
     bool llmModelFileExists() const;
 
+    /// If the configured path is missing, pick an existing GGUF under the LLM
+    /// models dir (or the default path). Returns the path to use for loading;
+    /// may update llmModelPath when a better file is found.
+    Q_INVOKABLE QString resolveLlmModelPath();
+
     /// True when modelPath points at an existing file.
     bool modelFileExists() const;
 
