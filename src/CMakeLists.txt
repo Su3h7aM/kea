@@ -51,17 +51,15 @@ if(KEA_BUILD_LLAMA)
     target_compile_definitions(kea PRIVATE KEA_HAS_LLAMA=1)
     target_include_directories(kea PRIVATE
         "${CMAKE_BINARY_DIR}/llama/src/include"
-        "${CMAKE_BINARY_DIR}/llama/src" # some headers live at repo root historically
+        "${CMAKE_BINARY_DIR}/llama/src/ggml/include"
     )
     # Runtime: libllama.so and libggml*.so live under llama/build/bin.
-    target_link_directories(kea PRIVATE
-        "${CMAKE_BINARY_DIR}/llama/build/bin"
-        "${CMAKE_BINARY_DIR}/llama/build"
-    )
-    target_link_libraries(kea PRIVATE llama)
+    target_link_directories(kea PRIVATE "${CMAKE_BINARY_DIR}/llama/build/bin")
+    target_link_libraries(kea PRIVATE llama ggml ggml-base ggml-cpu)
     # RPATH so the binary finds the build-tree libs without install.
     set_target_properties(kea PROPERTIES
-        BUILD_RPATH "${CMAKE_BINARY_DIR}/llama/build/bin;${CMAKE_BINARY_DIR}/llama/build"
+        BUILD_RPATH "${CMAKE_BINARY_DIR}/llama/build/bin"
+        INSTALL_RPATH "\$ORIGIN/../lib"
     )
 endif()
 
