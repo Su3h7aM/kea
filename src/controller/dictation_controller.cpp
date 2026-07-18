@@ -353,17 +353,17 @@ void DictationController::onTextFinalized(const QString &text, int /*eouMask*/)
     if (text.isEmpty() || m_state == State::Idle) {
         return;
     }
-    if (!m_committer) {
-        return;
-    }
-    if (!m_committer->commitText(text)) {
-        // Do not enter Error state mid-session — insertion can fail simply
-        // because no text field is focused (terminals, empty seat, …).
-        const QString detail = m_committer->lastError().isEmpty()
-            ? QStringLiteral("no active text field")
-            : m_committer->lastError();
+    // Do not enter Error state mid-session — insertion can fail simply
+    // because no text field is focused (terminals, empty seat, …).
+    if (!m_committer || !m_committer->commitText(text)) {
+        const QString detail = !m_committer
+            ? QStringLiteral("no text committer")
+            : (m_committer->lastError().isEmpty()
+                   ? QStringLiteral("no active text field")
+                   : m_committer->lastError());
+        // Log metadata only — never the dictated speech (privacy).
         qCWarning(keaLog) << "commit failed (streaming increment):" << detail
-                           << "text=" << text;
+                           << "chars=" << text.size();
         m_lastError = QStringLiteral("Could not insert text (%1)").arg(detail);
         Q_EMIT lastErrorChanged();
         setStatus(m_lastError);
@@ -421,33 +421,35 @@ void DictationController::onSessionFinished(const QString &text, const QString &
     setStatus(QStringLiteral("Idle"));
 
     if (!text.isEmpty()) {
-        qCInfo(keaLog) << "transcript:" << text;
-        if (m_committer) {
-            // Queued so Wayland commit runs on a clean event-loop turn.
-            const QString copy = text;
-            QMetaObject::invokeMethod(
-                this,
-                [this, copy]() {
-                    if (!m_committer) {
-                        return;
+        // Length only in logs; full text stays in UI recovery status on failure.
+        qCInfo(keaLog) << "transcript ready, chars=" << text.size();
+        // Queued so Wayland commit runs on a clean event-loop turn.
+        const QString copy = text;
+        QMetaObject::invokeMethod(
+            this,
+            [this, copy]() {
+                if (!m_committer || !m_committer->commitText(copy)) {
+                    const QString detail = !m_committer
+                        ? QStringLiteral("no text committer")
+                        : (m_committer->lastError().isEmpty()
+                               ? QStringLiteral("no active text field")
+                               : m_committer->lastError());
+                    qCWarning(keaLog) << "commit failed (session finished):" << detail
+                                       << "chars=" << copy.size();
+                    m_lastError =
+                        QStringLiteral("Could not insert text (%1)").arg(detail);
+                    Q_EMIT lastErrorChanged();
+                    // Keep the transcript visible so the user can recover it.
+                    setStatus(QStringLiteral("Insert failed — transcript: %1")
+                                  .arg(copy));
+                    if (m_committer) {
+                        m_committer->clearPreedit();
                     }
-                    if (!m_committer->commitText(copy)) {
-                        const QString detail = m_committer->lastError().isEmpty()
-                            ? QStringLiteral("no active text field")
-                            : m_committer->lastError();
-                        qCWarning(keaLog) << "commit failed (session finished):" << detail
-                                           << "text=" << copy;
-                        m_lastError =
-                            QStringLiteral("Could not insert text (%1)").arg(detail);
-                        Q_EMIT lastErrorChanged();
-                        // Keep the transcript visible so the user can recover it.
-                        setStatus(QStringLiteral("Insert failed — transcript: %1")
-                                      .arg(copy));
-                    }
-                    m_committer->clearPreedit();
-                },
-                Qt::QueuedConnection);
-        }
+                    return;
+                }
+                m_committer->clearPreedit();
+            },
+            Qt::QueuedConnection);
     } else {
         qCInfo(keaLog) << "transcript empty";
         if (m_committer) {
