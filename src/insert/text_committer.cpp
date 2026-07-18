@@ -4,6 +4,7 @@
  */
 #include "text_committer.h"
 
+#include "commit_chunks.h"
 #include "input_context.h"
 
 namespace kea {
@@ -36,14 +37,25 @@ bool TextCommitter::commitText(const QString &text)
     // between canCommit() and commitString() if focus changes mid-dictation.
     IInputContext *ctx = m_ctx;
     if (!ctx || !ctx->isValid()) {
-        setError(QStringLiteral("no active input context"));
+        setError(QStringLiteral(
+            "no text-input context (focused app did not enable text-input / IM)"));
         ++m_skippedCount;
         return false;
     }
     if (text.isEmpty()) {
         return true; // nothing to send, not an error
     }
-    ctx->commitString(text);
+    // Chunk long transcripts (fcitx5 waylandim: stay under ~4k UTF-8 / wl msg).
+    const QList<QString> chunks = splitForWaylandCommit(text);
+    for (const QString &chunk : chunks) {
+        // Focus can drop mid-chunk on long offline transcripts.
+        if (!ctx->isValid()) {
+            setError(QStringLiteral("input context lost during commit"));
+            ++m_skippedCount;
+            return false;
+        }
+        ctx->commitString(chunk);
+    }
     // Context may have been torn down during the commit; only touch local state.
     m_currentPreedit.clear();
     ++m_commitCount;
@@ -56,7 +68,8 @@ bool TextCommitter::setPreedit(const QString &text)
 {
     IInputContext *ctx = m_ctx;
     if (!ctx || !ctx->isValid()) {
-        setError(QStringLiteral("no active input context"));
+        setError(QStringLiteral(
+            "no text-input context (focused app did not enable text-input / IM)"));
         ++m_skippedCount;
         return false;
     }

@@ -91,12 +91,21 @@ add_test(NAME resampler COMMAND kea-resampler-test)
 # --- Text insertion: input-method-v1 client + serial-safe committer. ---
 # KWin implements input_method_unstable_v1 (not v2). Protocol XML is vendored
 # under data/protocols/; qtwaylandscanner generates the client wrappers.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
+
 add_library(kea_insert STATIC
     insert/input_context.h
     insert/input_method.h
     insert/input_method.cpp
+    insert/commit_chunks.h
+    insert/commit_chunks.cpp
     insert/text_committer.h
     insert/text_committer.cpp
+    insert/fake_input.h
+    insert/fake_input.cpp
+    insert/insertion_router.h
+    insert/insertion_router.cpp
 )
 target_include_directories(kea_insert PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(kea_insert
@@ -106,6 +115,7 @@ target_link_libraries(kea_insert
         Qt6::WaylandClient
     PRIVATE
         Wayland::Client
+        PkgConfig::XKBCOMMON
 )
 # NO_INCLUDE_CORE_ONLY: this protocol references wl_keyboard (grab_keyboard),
 # which needs the full wayland-client core headers, not the core-only stub.
@@ -113,12 +123,18 @@ qt_generate_wayland_protocol_client_sources(kea_insert
     NO_INCLUDE_CORE_ONLY
     FILES
         ${CMAKE_SOURCE_DIR}/data/protocols/input-method-unstable-v1.xml
+        ${CMAKE_SOURCE_DIR}/data/protocols/fake-input.xml
 )
 
 # Headless unit test for TextCommitter (mock IInputContext, no compositor).
 add_executable(kea-committer-test committer_test.cpp)
 target_link_libraries(kea-committer-test PRIVATE Qt6::Core kea_insert)
 add_test(NAME committer COMMAND kea-committer-test)
+
+# InsertionRouter: IM path + clipboard fallback (needs QGuiApplication clipboard).
+add_executable(kea-insertion-router-test insertion_router_test.cpp)
+target_link_libraries(kea-insertion-router-test PRIVATE Qt6::Core Qt6::Gui kea_insert)
+add_test(NAME insertion-router COMMAND kea-insertion-router-test)
 
 # Headless controller smoke (missing model → Error).
 add_executable(kea-controller-test controller_test.cpp

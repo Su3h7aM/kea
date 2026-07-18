@@ -5,11 +5,9 @@
  * TextCommitter — serial-safe orchestration of commit_string / preedit.
  *
  * Invariant (RFC risk R2): never send a commit/preedit without a valid
- * IInputContext and a known serial. All insertion traffic goes through this
- * class so the serial bookkeeping cannot be bypassed.
- *
- * Phase 2: pure commit/preedit. The dictation controller (Phase 3) will feed
- * finalized ASR text and the live preedit tail into these methods.
+ * IInputContext. Long strings are split into UTF-8-safe chunks (fcitx5-style
+ * 4k limit) so a single offline transcript cannot blow the Wayland message
+ * size. All IM insertion traffic goes through this class.
  */
 #pragma once
 

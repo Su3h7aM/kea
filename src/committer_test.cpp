@@ -13,6 +13,7 @@
 #include <QCoreApplication>
 #include <QString>
 
+#include "insert/commit_chunks.h"
 #include "insert/input_context.h"
 #include "insert/text_committer.h"
 
@@ -116,6 +117,36 @@ int main(int argc, char *argv[])
         c.setContext(nullptr);
         check(!c.canCommit(), "detached");
         check(!c.commitText(QStringLiteral("y")), "commit skipped after detach");
+    }
+
+    std::printf("[committer] long commit is chunked under Wayland size limit\n");
+    {
+        MockContext mock;
+        TextCommitter c;
+        c.setContext(&mock);
+        // ASCII: UTF-8 size equals QString length — exceed the 4000-byte cap.
+        const QString longText = QString(kWaylandCommitUtf8Limit + 500, QLatin1Char('a'));
+        check(c.commitText(longText), "long commit ok");
+        check(mock.commits.size() >= 2, "split into multiple wire commits");
+        QString rejoined;
+        int maxBytes = 0;
+        for (const QString &chunk : mock.commits) {
+            const int n = chunk.toUtf8().size();
+            if (n > maxBytes) {
+                maxBytes = n;
+            }
+            rejoined += chunk;
+        }
+        check(maxBytes <= kWaylandCommitUtf8Limit, "each chunk within limit");
+        check(rejoined == longText, "chunks reassemble to original");
+    }
+
+    std::printf("[committer] splitForWaylandCommit helper\n");
+    {
+        const auto empty = splitForWaylandCommit(QString());
+        check(empty.isEmpty(), "empty → no chunks");
+        const auto one = splitForWaylandCommit(QStringLiteral("hi"));
+        check(one.size() == 1 && one[0] == QStringLiteral("hi"), "short stays one chunk");
     }
 
     if (failures == 0) {

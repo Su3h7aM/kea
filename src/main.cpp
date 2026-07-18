@@ -26,6 +26,7 @@
 #include "controller/dictation_controller.h"
 #include "hotkey/global_hotkey.h"
 #include "insert/input_method.h"
+#include "insert/insertion_router.h"
 #include "insert/text_committer.h"
 #include "logging.h"
 
@@ -78,11 +79,13 @@ int main(int argc, char *argv[])
 
     kea::InputMethod inputMethod;
     kea::TextCommitter committer;
+    kea::InsertionRouter inserter;
+    inserter.setTextCommitter(&committer);
     kea::GlobalHotkey hotkey;
     hotkey.setSequence(settings.hotkey());
 
     kea::DictationController dictation(&settings);
-    dictation.setTextCommitter(&committer);
+    dictation.setInsertionRouter(&inserter);
     dictation.setHotkey(&hotkey);
 
     kea::ModelDownloader downloader;
