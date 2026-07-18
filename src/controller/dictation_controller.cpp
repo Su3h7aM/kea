@@ -8,6 +8,7 @@
 #include <QList>
 #include <QMetaObject>
 #include <QMetaType>
+#include <QThread>
 
 #include "app/app_settings.h"
 #include "audio/audio_recorder.h"
@@ -78,8 +79,6 @@ void DictationController::setupTransform(TextTransformer *externalTransformer)
     // contexts if we call load/transform from different threads.
     m_transformer->moveToThread(&m_transformThread);
     m_transformWorker->moveToThread(&m_transformThread);
-    connect(&m_transformThread, &QThread::finished, m_transformWorker, &QObject::deleteLater);
-    connect(&m_transformThread, &QThread::finished, m_transformer, &QObject::deleteLater);
     m_transformThread.start();
     connect(m_transformWorker, &TransformWorker::finished,
             this, &DictationController::onTransformFinished);
@@ -165,10 +164,26 @@ DictationController::~DictationController()
         m_worker = nullptr;
     }
     if (m_ownTransformer) {
+        // Unload on the transform thread before quitting it. deleteLater after
+        // QThread::finished never runs (no event loop), which caused
+        // "pure virtual method called" / SIGABRT on exit.
+        if (m_transformWorker && m_transformThread.isRunning()) {
+            QMetaObject::invokeMethod(m_transformWorker, "unloadModel",
+                                      Qt::BlockingQueuedConnection);
+        }
         m_transformThread.quit();
         m_transformThread.wait(5000);
-        m_transformWorker = nullptr;
-        m_transformer = nullptr;
+        // Thread is stopped — safe to delete from this thread.
+        if (m_transformWorker) {
+            m_transformWorker->moveToThread(QThread::currentThread());
+            delete m_transformWorker;
+            m_transformWorker = nullptr;
+        }
+        if (m_transformer) {
+            m_transformer->moveToThread(QThread::currentThread());
+            delete m_transformer;
+            m_transformer = nullptr;
+        }
     } else if (m_transformWorker) {
         delete m_transformWorker;
         m_transformWorker = nullptr;

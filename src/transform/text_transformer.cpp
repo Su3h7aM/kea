@@ -87,15 +87,19 @@ QString stripKnownPrefixes(QString line)
     return line;
 }
 
-bool isOriginalEchoLine(const QString &line, const QString &original)
+/// Only drop lines that are *labeled* as the original input — not lines that
+/// simply equal the ASR text (a valid no-op correction is "same as input").
+bool isLabeledOriginalLine(const QString &line, const QString &original)
 {
     static const QRegularExpression origLabel(QStringLiteral(
         "^\\s*(?:original|input|transcript|raw|source|asr)\\s*[:\\-–—]\\s*"),
         QRegularExpression::CaseInsensitiveOption);
-    QString body = line;
-    body.remove(origLabel);
-    body = body.trimmed();
-    return body.compare(original, Qt::CaseInsensitive) == 0;
+    const auto m = origLabel.match(line);
+    if (!m.hasMatch()) {
+        return false;
+    }
+    QString body = line.mid(m.capturedLength(0)).trimmed();
+    return body.isEmpty() || body.compare(original, Qt::CaseInsensitive) == 0;
 }
 
 } // namespace
@@ -132,7 +136,7 @@ QString TextTransformer::sanitizeTransformOutput(const QString &raw, const QStri
         if (line.isEmpty()) {
             continue;
         }
-        if (isOriginalEchoLine(line, original)) {
+        if (isLabeledOriginalLine(line, original)) {
             continue;
         }
         line = stripKnownPrefixes(line);

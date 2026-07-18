@@ -6,6 +6,9 @@
 
 #include "logging.h"
 
+#include <QRegularExpression>
+#include <QtGlobal>
+
 #ifdef KEA_HAS_LLAMA
 #include "llama.h"
 #include <string>
@@ -92,11 +95,11 @@ bool LlamaTransformer::loadModel(const QString &ggufPath)
         return false;
     }
 
-    // Greedy-ish sampler for deterministic cleanup (low temperature).
+    // Low temperature for deterministic short rewrites.
     auto sparams = llama_sampler_chain_default_params();
     m_impl->sampler = llama_sampler_chain_init(sparams);
-    llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_temp(0.2f));
-    llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_top_k(40));
+    llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_temp(0.1f));
+    llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_top_k(20));
     llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_top_p(0.9f, 1));
     llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
@@ -124,8 +127,6 @@ void LlamaTransformer::unloadModel()
         llama_backend_free();
     }
     m_impl->path.clear();
-#else
-    // nothing
 #endif
 }
 
@@ -146,46 +147,75 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
         return QString();
     }
 
-    // LFM2.5 ChatML-like template. User turn is deliberately short and forbids
-    // meta text; small models still sometimes add labels — sanitized below.
     const QString system = stylePrompt(style);
-    const QString prompt = QStringLiteral(
-                               "<|startoftext|><|im_start|>system\n%1<|im_end|>\n"
-                               "<|im_start|>user\n"
-                               "Rewrite this transcript. Reply with only the rewritten "
-                               "text, nothing else.\n\n"
-                               "%2"
-                               "<|im_end|>\n"
-                               "<|im_start|>assistant\n")
-                               .arg(system, trimmed);
+    // Keep the user message minimal — small models follow short instructions better.
+    const QString user = QStringLiteral(
+                             "Fix this speech transcript. Reply with only the fixed text.\n\n%1")
+                             .arg(trimmed);
+
+    const std::string systemUtf8 = system.toStdString();
+    const std::string userUtf8 = user.toStdString();
+    const llama_chat_message messages[] = {
+        {"system", systemUtf8.c_str()},
+        {"user", userUtf8.c_str()},
+    };
+
+    // Prefer the GGUF-embedded chat template (LFM2.5); fall back to a simple
+    // ChatML-like string if apply_template fails.
+    const char *tmpl = llama_model_chat_template(m_impl->model, /*name=*/nullptr);
+    std::string formatted;
+    bool usedChatTemplate = false;
+    if (tmpl && tmpl[0] != '\0') {
+        // First call with null buffer returns required size.
+        const int32_t need = llama_chat_apply_template(tmpl, messages, 2, /*add_ass=*/true,
+                                                      nullptr, 0);
+        if (need > 0) {
+            formatted.resize(static_cast<size_t>(need));
+            const int32_t wrote = llama_chat_apply_template(tmpl, messages, 2, true,
+                                                           formatted.data(), need);
+            if (wrote > 0) {
+                formatted.resize(static_cast<size_t>(wrote));
+                usedChatTemplate = true;
+            }
+        }
+    }
+    if (!usedChatTemplate) {
+        // Manual ChatML without BOS — tokenizer may add BOS via add_special.
+        formatted = "<|im_start|>system\n" + systemUtf8 + "<|im_end|>\n"
+                    "<|im_start|>user\n" + userUtf8 + "<|im_end|>\n"
+                    "<|im_start|>assistant\n";
+    }
 
     const llama_vocab *vocab = llama_model_get_vocab(m_impl->model);
-    std::string promptUtf8 = prompt.toStdString();
-    const int nPrompt = -llama_tokenize(vocab, promptUtf8.c_str(), promptUtf8.size(),
-                                         nullptr, 0, true, true);
+    // When the chat template already inserted BOS (LFM does), do not add another.
+    const bool addSpecial = !usedChatTemplate;
+    const int nPrompt = -llama_tokenize(vocab, formatted.c_str(), int(formatted.size()),
+                                         nullptr, 0, addSpecial, true);
     if (nPrompt <= 0) {
         setError(QStringLiteral("tokenize failed"));
         return utterance;
     }
     std::vector<llama_token> tokens(static_cast<size_t>(nPrompt));
-    if (llama_tokenize(vocab, promptUtf8.c_str(), promptUtf8.size(), tokens.data(),
-                        tokens.size(), true, true)
+    if (llama_tokenize(vocab, formatted.c_str(), int(formatted.size()), tokens.data(),
+                        int(tokens.size()), addSpecial, true)
         < 0) {
         setError(QStringLiteral("tokenize fill failed"));
         return utterance;
     }
 
     llama_memory_clear(llama_get_memory(m_impl->ctx), true);
+    if (m_impl->sampler) {
+        llama_sampler_reset(m_impl->sampler);
+    }
 
-    llama_batch batch = llama_batch_get_one(tokens.data(), tokens.size());
+    llama_batch batch = llama_batch_get_one(tokens.data(), int(tokens.size()));
     if (llama_decode(m_impl->ctx, batch) != 0) {
         setError(QStringLiteral("llama_decode prompt failed"));
         return utterance;
     }
 
-    // Cap generation near input length so the model cannot ramble or restate
-    // the task. ~2× input tokens (by chars/3 heuristic) with a modest floor.
-    const int maxNew = qBound(64, (trimmed.size() / 2) + 32, 256);
+    // Cap near input length so the model cannot ramble.
+    const int maxNew = qBound(48, (trimmed.size() / 2) + 48, 192);
     std::string out;
     for (int i = 0; i < maxNew; ++i) {
         const llama_token id = llama_sampler_sample(m_impl->sampler, m_impl->ctx, -1);
@@ -202,12 +232,10 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
             setError(QStringLiteral("llama_decode generation failed"));
             break;
         }
-        // Stop if model echoed a closing tag.
         if (out.find("<|im_end|>") != std::string::npos) {
             out = out.substr(0, out.find("<|im_end|>"));
             break;
         }
-        // Early stop on a double newline after some content (meta after answer).
         if (out.size() > 8) {
             const auto pos = out.find("\n\n");
             if (pos != std::string::npos && pos > 0) {
@@ -217,11 +245,21 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
         }
     }
 
-    QString result = sanitizeTransformOutput(
-        QString::fromUtf8(out.c_str(), int(out.size())), trimmed);
+    const QString rawOut = QString::fromUtf8(out.c_str(), int(out.size())).trimmed();
+    qCDebug(keaLog) << "LLM raw out:" << rawOut;
+    QString result = sanitizeTransformOutput(rawOut, trimmed);
     if (result.isEmpty()) {
-        setError(QStringLiteral("empty LLM output — using raw transcript"));
-        return utterance;
+        // Sanitizer was too aggressive or model only emitted control tokens.
+        // Prefer raw (tag-stripped) over failing open to the ASR string with an error.
+        static const QRegularExpression tags(QStringLiteral(R"(<\|[^>]+\|>)"));
+        QString fallback = rawOut;
+        fallback.remove(tags);
+        fallback = fallback.trimmed();
+        if (fallback.isEmpty()) {
+            setError(QStringLiteral("empty LLM output — using raw transcript"));
+            return utterance;
+        }
+        result = fallback;
     }
     m_lastError.clear();
     return result;
