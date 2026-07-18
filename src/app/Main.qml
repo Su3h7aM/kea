@@ -20,8 +20,8 @@ import org.kde.kquickcontrols as KQuickControls
 Kirigami.ApplicationWindow {
     id: root
 
-    width: Kirigami.Units.gridUnit * 34
-    height: Kirigami.Units.gridUnit * 36
+    width: Kirigami.Units.gridUnit * 36
+    height: Kirigami.Units.gridUnit * 40
     title: i18nc("@title:window", "Kea")
 
     // When set, the next successful download is treated as an LLM GGUF.
@@ -261,19 +261,45 @@ Kirigami.ApplicationWindow {
                     }
                 }
 
-                Controls.CheckBox {
-                    Kirigami.FormData.label: i18nc("@label", "Post-process")
-                    text: i18nc("@option", "Polish transcript with local LLM")
-                    checked: _settings ? _settings.postProcessEnabled : false
-                    onToggled: {
+                Controls.Button {
+                    text: i18nc("@action:button", "Mark setup complete")
+                    visible: _settings && !_settings.onboardingDone
+                    enabled: _readiness && _readiness.modelReady
+                    onClicked: _settings.onboardingDone = true
+                }
+            }
+
+            // --- Transcript mode: ASR only vs LLM polish (always visible) ---
+            Kirigami.Heading {
+                text: i18nc("@title:group", "Transcript mode")
+                level: 2
+            }
+
+            Kirigami.FormLayout {
+                Layout.fillWidth: true
+                // Editable even while the ASR model is loaded — this only
+                // changes how finished text is committed, not which GGUF is loaded.
+
+                Controls.ComboBox {
+                    id: transcriptModeBox
+                    Kirigami.FormData.label: i18nc("@label", "Mode")
+                    Layout.fillWidth: true
+                    model: [
+                        i18nc("@item", "ASR only (verbatim)"),
+                        i18nc("@item", "Polish with local LLM")
+                    ]
+                    // 0 = post-process off, 1 = on
+                    currentIndex: (_settings && _settings.postProcessEnabled) ? 1 : 0
+                    onActivated: (index) => {
                         if (_settings)
-                            _settings.postProcessEnabled = checked
+                            _settings.postProcessEnabled = (index === 1)
                     }
                 }
 
                 Controls.ComboBox {
                     id: styleBox
-                    Kirigami.FormData.label: i18nc("@label", "Style")
+                    Kirigami.FormData.label: i18nc("@label", "LLM style")
+                    Layout.fillWidth: true
                     enabled: _settings && _settings.postProcessEnabled
                     model: [
                         i18nc("@item", "Correct (default)"),
@@ -291,29 +317,32 @@ Kirigami.ApplicationWindow {
                 Controls.Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
-                    opacity: 0.7
-                    visible: _settings && _settings.postProcessEnabled
+                    opacity: 0.8
                     text: {
                         if (!_settings)
                             return ""
-                        if (_settings.llmModelFileExists)
-                            return i18nc("@info", "LLM model: %1", _settings.llmModelPath)
+                        if (!_settings.postProcessEnabled) {
+                            return i18nc("@info",
+                                "Parakeet text is committed as-is (no rewrite).")
+                        }
+                        if (_settings.llmModelFileExists) {
+                            return i18nc("@info",
+                                "After you release the hotkey, the local LLM rewrites " +
+                                "the transcript (style above) before it is inserted. " +
+                                "Model: %1",
+                                _settings.llmModelPath)
+                        }
                         return i18nc("@info",
-                            "Download an LLM model below (LFM2.5 230M recommended). Without it, raw ASR is used.")
+                            "Post-process is on, but no LLM GGUF is available yet. " +
+                            "Download one in “LLM model” below (LFM2.5 230M recommended), " +
+                            "or Kea will fall back to raw ASR text.")
                     }
-                }
-
-                Controls.Button {
-                    text: i18nc("@action:button", "Mark setup complete")
-                    visible: _settings && !_settings.onboardingDone
-                    enabled: _readiness && _readiness.modelReady
-                    onClicked: _settings.onboardingDone = true
                 }
             }
 
-            // --- Model catalog / download ---
+            // --- ASR model catalog / download ---
             Kirigami.Heading {
-                text: i18nc("@title:group", "Get a model")
+                text: i18nc("@title:group", "Speech model (Parakeet)")
                 level: 2
             }
 
@@ -529,20 +558,21 @@ Kirigami.ApplicationWindow {
                 }
             }
 
-            // --- LLM post-process model download ---
+            // --- LLM model download (only when polish mode is selected) ---
             Kirigami.Heading {
-                text: i18nc("@title:group", "Post-process LLM")
+                text: i18nc("@title:group", "LLM model (post-process)")
                 level: 2
+                visible: _settings && _settings.postProcessEnabled
             }
 
             Kirigami.FormLayout {
                 Layout.fillWidth: true
-                enabled: (_dictation ? _dictation.canConfigure : true)
-                         && !(_downloader && _downloader.busy)
+                visible: _settings && _settings.postProcessEnabled
+                enabled: !(_downloader && _downloader.busy)
 
                 Controls.ComboBox {
                     id: llmModelBox
-                    Kirigami.FormData.label: i18nc("@label", "LLM model")
+                    Kirigami.FormData.label: i18nc("@label", "Model")
                     Layout.fillWidth: true
                     model: _llmCatalog ? _llmCatalog.models : []
                     textRole: "name"
@@ -665,6 +695,7 @@ Kirigami.ApplicationWindow {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 opacity: 0.65
+                visible: _settings && _settings.postProcessEnabled
                 text: {
                     const path = _llmCatalog ? _llmCatalog.userCatalogPath
                                              : "~/.config/kea/llm_models.json"
@@ -718,13 +749,13 @@ Kirigami.ApplicationWindow {
                 wrapMode: Text.WordWrap
                 opacity: 0.7
                 text: i18nc("@info",
-                    "Click Start to load the model, then hold the global hotkey " +
+                    "Click Start to load the speech model, then hold the global hotkey " +
                     "(default Ctrl+Shift+D) while a text field is focused to dictate. " +
                     "Release to commit.\n\n" +
-                    "Click Stop to unload the model and change the backend or model file.\n\n" +
-                    "Pick an Active model from the catalog, download one below, or set " +
-                    "KEA_MODEL=/path/to/model.gguf. Offline models buffer until release; " +
-                    "streaming models insert text live.\n\n" +
+                    "Transcript mode: “ASR only” inserts Parakeet text as spoken; " +
+                    "“Polish with local LLM” rewrites it (Correct / Enhance / …) after release.\n\n" +
+                    "Click Stop to unload the speech model and change the backend or model file. " +
+                    "Transcript mode can be changed without unloading.\n\n" +
                     "Only one Wayland input method can own the seat — disable fcitx5/IBus if binding fails.")
             }
         }
