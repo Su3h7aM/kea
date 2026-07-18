@@ -18,12 +18,21 @@ target_sources(kea
         app/readiness.cpp
         app/model_downloader.h
         app/model_downloader.cpp
+        app/model_catalog.h
+        app/model_catalog.cpp
+        app/model_verify.h
+        app/model_verify.cpp
         hotkey/global_hotkey.h
         hotkey/global_hotkey.cpp
         controller/parakeet_worker.h
         controller/parakeet_worker.cpp
         controller/dictation_controller.h
         controller/dictation_controller.cpp
+)
+
+# Dev/install fallback so ModelCatalog finds data/models.json before install.
+target_compile_definitions(kea PRIVATE
+    KEA_MODELS_JSON="${CMAKE_SOURCE_DIR}/data/models.json"
 )
 
 ecm_target_qml_sources(kea
@@ -130,6 +139,26 @@ qt_generate_wayland_protocol_client_sources(kea_insert
 add_executable(kea-committer-test committer_test.cpp)
 target_link_libraries(kea-committer-test PRIVATE Qt6::Core kea_insert)
 add_test(NAME committer COMMAND kea-committer-test)
+
+# Model catalog parse/merge + GGUF integrity verification.
+add_executable(kea-model-catalog-test model_catalog_test.cpp
+    app/model_catalog.cpp
+    app/model_verify.cpp
+    app/app_settings.cpp
+    logging.cpp
+    hotkey/global_hotkey.cpp
+)
+target_link_libraries(kea-model-catalog-test
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        KF6::GlobalAccel
+        KF6::I18n
+)
+target_compile_definitions(kea-model-catalog-test PRIVATE
+    KEA_MODELS_JSON="${CMAKE_SOURCE_DIR}/data/models.json"
+)
+add_test(NAME model_catalog COMMAND kea-model-catalog-test)
 
 # InsertionRouter: IM path + clipboard fallback (needs QGuiApplication clipboard).
 add_executable(kea-insertion-router-test insertion_router_test.cpp)

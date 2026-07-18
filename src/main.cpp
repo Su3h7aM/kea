@@ -20,6 +20,7 @@
 #include <KLocalizedString>
 
 #include "app/app_settings.h"
+#include "app/model_catalog.h"
 #include "app/model_downloader.h"
 #include "app/readiness.h"
 #include "app/tray_controller.h"
@@ -29,14 +30,6 @@
 #include "insert/insertion_router.h"
 #include "insert/text_committer.h"
 #include "logging.h"
-
-// Default offline TDT model download (must match data/models.json).
-// Path resolution: $KEA_MODEL, else ~/.local/share/kea/models/<filename>
-// (see AppSettings::defaultModelPath).
-static const char kDefaultModelUrl[] =
-    "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/"
-    "tdt-0.6b-v3-q8_0.gguf";
-static const char kDefaultModelFilename[] = "tdt-0.6b-v3-q8_0.gguf";
 
 int main(int argc, char *argv[])
 {
@@ -89,6 +82,7 @@ int main(int argc, char *argv[])
     dictation.setHotkey(&hotkey);
 
     kea::ModelDownloader downloader;
+    kea::ModelCatalog catalog;
     kea::Readiness readiness(&settings, &inputMethod, &committer, &dictation);
 
     QObject::connect(&inputMethod, &kea::InputMethod::contextChanged,
@@ -144,10 +138,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("_hotkey"), &hotkey);
     engine.rootContext()->setContextProperty(QStringLiteral("_readiness"), &readiness);
     engine.rootContext()->setContextProperty(QStringLiteral("_downloader"), &downloader);
-    engine.rootContext()->setContextProperty(QStringLiteral("_defaultModelUrl"),
-                                             QString::fromUtf8(kDefaultModelUrl));
-    engine.rootContext()->setContextProperty(QStringLiteral("_defaultModelFilename"),
-                                             QString::fromUtf8(kDefaultModelFilename));
+    engine.rootContext()->setContextProperty(QStringLiteral("_catalog"), &catalog);
 
     engine.loadFromModule("io.github.su3h7am.kea", "Main");
     if (engine.rootObjects().isEmpty()) {

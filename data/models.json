@@ -1,23 +1,611 @@
 {
+  "version": 1,
   "models": [
     {
-      "id": "tdt-0.6b-v3-q8",
-      "name": "Parakeet TDT 0.6B v3 (Q8_0)",
-      "description": "Offline multilingual TDT model (25 European languages). Used with push-to-talk: record while held, transcribe on release.",
-      "filename": "tdt-0.6b-v3-q8_0.gguf",
-      "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v3-q8_0.gguf",
-      "streaming": false,
-      "sizeHint": "~900MB"
+      "id": "realtime_eou_120m-v1",
+      "name": "Parakeet Realtime EOU 120M",
+      "description": "Cache-aware streaming RNNT with end-of-utterance detection. Live partial text while speaking.",
+      "streaming": true,
+      "source": "https://huggingface.co/nvidia/parakeet_realtime_eou_120m-v1",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "realtime_eou_120m-v1-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/realtime_eou_120m-v1-f16.gguf",
+          "sizeBytes": 266517952,
+          "sizeHint": "~254 MB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "realtime_eou_120m-v1-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/realtime_eou_120m-v1-q8_0.gguf",
+          "sizeBytes": 176001472,
+          "sizeHint": "~168 MB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "realtime_eou_120m-v1-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/realtime_eou_120m-v1-q6_k.gguf",
+          "sizeBytes": 153920416,
+          "sizeHint": "~147 MB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "realtime_eou_120m-v1-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/realtime_eou_120m-v1-q5_k.gguf",
+          "sizeBytes": 141151648,
+          "sizeHint": "~135 MB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "realtime_eou_120m-v1-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/realtime_eou_120m-v1-q4_k.gguf",
+          "sizeBytes": 129133984,
+          "sizeHint": "~123 MB",
+          "recommended": false
+        }
+      ]
     },
     {
-      "id": "parakeet-realtime-eou-120m-q8",
-      "name": "Parakeet Realtime EOU 120M (Q8_0)",
-      "description": "Cache-aware streaming model with end-of-utterance detection. Live partial text while speaking.",
-      "filename": "parakeet_realtime_eou_120m-v1-q8_0.gguf",
-      "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/realtime_eou_120m-v1-q8_0.gguf",
+      "id": "nemotron-3.5-asr-streaming-0.6b",
+      "name": "Nemotron 3.5 ASR Streaming 0.6B",
+      "description": "Multilingual (40+ locales) prompt-conditioned streaming model. Use for live multilingual dictation.",
       "streaming": true,
-      "sizeHint": "~176MB"
+      "source": "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "nemotron-3.5-asr-streaming-0.6b-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-f16.gguf",
+          "sizeBytes": 1484324992,
+          "sizeHint": "~1.4 GB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "nemotron-3.5-asr-streaming-0.6b-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-q8_0.gguf",
+          "sizeBytes": 983696512,
+          "sizeHint": "~938 MB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "nemotron-3.5-asr-streaming-0.6b-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-q6_k.gguf",
+          "sizeBytes": 855669856,
+          "sizeHint": "~816 MB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "nemotron-3.5-asr-streaming-0.6b-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-q5_k.gguf",
+          "sizeBytes": 784801888,
+          "sizeHint": "~748 MB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "nemotron-3.5-asr-streaming-0.6b-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-q4_k.gguf",
+          "sizeBytes": 718102624,
+          "sizeHint": "~685 MB",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "tdt-0.6b-v3",
+      "name": "Parakeet TDT 0.6B v3",
+      "description": "Offline multilingual TDT (25 European languages). Push-to-talk: record while held, transcribe on release. Kea's default model.",
+      "streaming": false,
+      "source": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "tdt-0.6b-v3-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v3-f16.gguf",
+          "sizeBytes": 1441046400,
+          "sizeHint": "~1.3 GB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "tdt-0.6b-v3-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v3-q8_0.gguf",
+          "sizeBytes": 940663680,
+          "sizeHint": "~897 MB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "tdt-0.6b-v3-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v3-q6_k.gguf",
+          "sizeBytes": 812700512,
+          "sizeHint": "~775 MB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "tdt-0.6b-v3-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v3-q5_k.gguf",
+          "sizeBytes": 741867360,
+          "sizeHint": "~707 MB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "tdt-0.6b-v3-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v3-q4_k.gguf",
+          "sizeBytes": 675200864,
+          "sizeHint": "~644 MB",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "tdt_ctc-110m",
+      "name": "Parakeet TDT-CTC 110M",
+      "description": "Small hybrid TDT+CTC offline model. Fast and compact for lower-end machines.",
+      "streaming": false,
+      "source": "https://huggingface.co/nvidia/parakeet-tdt_ctc-110m",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "tdt_ctc-110m-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-110m-f16.gguf",
+          "sizeBytes": 267452544,
+          "sizeHint": "~255 MB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "tdt_ctc-110m-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-110m-q8_0.gguf",
+          "sizeBytes": 177796224,
+          "sizeHint": "~170 MB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "tdt_ctc-110m-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-110m-q6_k.gguf",
+          "sizeBytes": 155937408,
+          "sizeHint": "~149 MB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "tdt_ctc-110m-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-110m-q5_k.gguf",
+          "sizeBytes": 143290496,
+          "sizeHint": "~137 MB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "tdt_ctc-110m-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-110m-q4_k.gguf",
+          "sizeBytes": 131387520,
+          "sizeHint": "~125 MB",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "tdt-0.6b-v2",
+      "name": "Parakeet TDT 0.6B v2",
+      "description": "Previous-generation English TDT offline model.",
+      "streaming": false,
+      "source": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "tdt-0.6b-v2-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v2-f16.gguf",
+          "sizeBytes": 1404218656,
+          "sizeHint": "~1.3 GB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "tdt-0.6b-v2-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v2-q8_0.gguf",
+          "sizeBytes": 903835936,
+          "sizeHint": "~862 MB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "tdt-0.6b-v2-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v2-q6_k.gguf",
+          "sizeBytes": 775872800,
+          "sizeHint": "~740 MB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "tdt-0.6b-v2-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v2-q5_k.gguf",
+          "sizeBytes": 705039648,
+          "sizeHint": "~672 MB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "tdt-0.6b-v2-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v2-q4_k.gguf",
+          "sizeBytes": 638373152,
+          "sizeHint": "~609 MB",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "ctc-0.6b",
+      "name": "Parakeet CTC 0.6B",
+      "description": "Offline CTC (FastConformer). Strong English ASR without streaming.",
+      "streaming": false,
+      "source": "https://huggingface.co/nvidia/parakeet-ctc-0.6b",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "ctc-0.6b-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/ctc-0.6b-f16.gguf",
+          "sizeBytes": 1373359680,
+          "sizeHint": "~1.3 GB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "ctc-0.6b-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/ctc-0.6b-q8_0.gguf",
+          "sizeBytes": 875449920,
+          "sizeHint": "~835 MB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "ctc-0.6b-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/ctc-0.6b-q6_k.gguf",
+          "sizeBytes": 746823232,
+          "sizeHint": "~712 MB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "ctc-0.6b-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/ctc-0.6b-q5_k.gguf",
+          "sizeBytes": 676286016,
+          "sizeHint": "~645 MB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "ctc-0.6b-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/ctc-0.6b-q4_k.gguf",
+          "sizeBytes": 609898048,
+          "sizeHint": "~582 MB",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "rnnt-0.6b",
+      "name": "Parakeet RNNT 0.6B",
+      "description": "Offline RNNT transducer (FastConformer).",
+      "streaming": false,
+      "source": "https://huggingface.co/nvidia/parakeet-rnnt-0.6b",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "rnnt-0.6b-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/rnnt-0.6b-f16.gguf",
+          "sizeBytes": 1402800800,
+          "sizeHint": "~1.3 GB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "rnnt-0.6b-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/rnnt-0.6b-q8_0.gguf",
+          "sizeBytes": 903892640,
+          "sizeHint": "~862 MB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "rnnt-0.6b-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/rnnt-0.6b-q6_k.gguf",
+          "sizeBytes": 776310432,
+          "sizeHint": "~740 MB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "rnnt-0.6b-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/rnnt-0.6b-q5_k.gguf",
+          "sizeBytes": 705686176,
+          "sizeHint": "~673 MB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "rnnt-0.6b-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/rnnt-0.6b-q4_k.gguf",
+          "sizeBytes": 639216288,
+          "sizeHint": "~610 MB",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "tdt-1.1b",
+      "name": "Parakeet TDT 1.1B",
+      "description": "Larger offline TDT model for higher accuracy (more RAM).",
+      "streaming": false,
+      "source": "https://huggingface.co/nvidia/parakeet-tdt-1.1b",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "tdt-1.1b-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-1.1b-f16.gguf",
+          "sizeBytes": 2425253984,
+          "sizeHint": "~2.3 GB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "tdt-1.1b-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-1.1b-q8_0.gguf",
+          "sizeBytes": 1554756704,
+          "sizeHint": "~1.4 GB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "tdt-1.1b-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-1.1b-q6_k.gguf",
+          "sizeBytes": 1331180640,
+          "sizeHint": "~1.2 GB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "tdt-1.1b-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-1.1b-q5_k.gguf",
+          "sizeBytes": 1207914592,
+          "sizeHint": "~1.1 GB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "tdt-1.1b-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-1.1b-q4_k.gguf",
+          "sizeBytes": 1091899488,
+          "sizeHint": "~1.0 GB",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "ctc-1.1b",
+      "name": "Parakeet CTC 1.1B",
+      "description": "Larger offline CTC model (more RAM).",
+      "streaming": false,
+      "source": "https://huggingface.co/nvidia/parakeet-ctc-1.1b",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "ctc-1.1b-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/ctc-1.1b-f16.gguf",
+          "sizeBytes": 2395800000,
+          "sizeHint": "~2.2 GB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "ctc-1.1b-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/ctc-1.1b-q8_0.gguf",
+          "sizeBytes": 1526301120,
+          "sizeHint": "~1.4 GB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "ctc-1.1b-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/ctc-1.1b-q6_k.gguf",
+          "sizeBytes": 1301680576,
+          "sizeHint": "~1.2 GB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "ctc-1.1b-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/ctc-1.1b-q5_k.gguf",
+          "sizeBytes": 1178501568,
+          "sizeHint": "~1.1 GB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "ctc-1.1b-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/ctc-1.1b-q4_k.gguf",
+          "sizeBytes": 1062568384,
+          "sizeHint": "~1013 MB",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "rnnt-1.1b",
+      "name": "Parakeet RNNT 1.1B",
+      "description": "Larger offline RNNT model (more RAM).",
+      "streaming": false,
+      "source": "https://huggingface.co/nvidia/parakeet-rnnt-1.1b",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "rnnt-1.1b-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/rnnt-1.1b-f16.gguf",
+          "sizeBytes": 2425241120,
+          "sizeHint": "~2.3 GB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "rnnt-1.1b-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/rnnt-1.1b-q8_0.gguf",
+          "sizeBytes": 1554743840,
+          "sizeHint": "~1.4 GB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "rnnt-1.1b-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/rnnt-1.1b-q6_k.gguf",
+          "sizeBytes": 1331167776,
+          "sizeHint": "~1.2 GB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "rnnt-1.1b-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/rnnt-1.1b-q5_k.gguf",
+          "sizeBytes": 1207901728,
+          "sizeHint": "~1.1 GB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "rnnt-1.1b-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/rnnt-1.1b-q4_k.gguf",
+          "sizeBytes": 1091886624,
+          "sizeHint": "~1.0 GB",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "tdt_ctc-1.1b",
+      "name": "Parakeet TDT-CTC 1.1B",
+      "description": "Larger hybrid TDT+CTC offline model (more RAM).",
+      "streaming": false,
+      "source": "https://huggingface.co/nvidia/parakeet-tdt_ctc-1.1b",
+      "defaultQuant": "q8_0",
+      "quants": [
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "tdt_ctc-1.1b-f16.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-1.1b-f16.gguf",
+          "sizeBytes": 2429456256,
+          "sizeHint": "~2.3 GB",
+          "recommended": true
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "tdt_ctc-1.1b-q8_0.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-1.1b-q8_0.gguf",
+          "sizeBytes": 1558958976,
+          "sizeHint": "~1.5 GB",
+          "recommended": false
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "tdt_ctc-1.1b-q6_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-1.1b-q6_k.gguf",
+          "sizeBytes": 1335382912,
+          "sizeHint": "~1.2 GB",
+          "recommended": false
+        },
+        {
+          "id": "q5_k",
+          "label": "Q5_K",
+          "filename": "tdt_ctc-1.1b-q5_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-1.1b-q5_k.gguf",
+          "sizeBytes": 1212116864,
+          "sizeHint": "~1.1 GB",
+          "recommended": false
+        },
+        {
+          "id": "q4_k",
+          "label": "Q4_K",
+          "filename": "tdt_ctc-1.1b-q4_k.gguf",
+          "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt_ctc-1.1b-q4_k.gguf",
+          "sizeBytes": 1096101760,
+          "sizeHint": "~1.0 GB",
+          "recommended": false
+        }
+      ]
     }
   ],
-  "notes": "Kea auto-selects streaming vs offline mode from the model. Offline (TDT) buffers audio until hotkey release; streaming feeds live."
+  "notes": "Catalog schema v1: each model has nested quantizations. Bundled list ships with Kea; users may add/override entries in ~/.config/kea/models.json (same schema). Kea merges by model id (user quants override/extend). Offline models buffer until hotkey release; streaming models feed live. sizeBytes is used for download integrity; optional sha256 is checked when present. F16 is mudler's recommended quant; Kea defaults to Q8_0 for a smaller first download."
 }

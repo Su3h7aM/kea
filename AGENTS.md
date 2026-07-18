@@ -36,7 +36,7 @@ software actually hosted under KDE. Keep this in mind when adding new identifier
 **Pre-alpha (Phases 0–4 implemented).** Module layout:
 
 ```
-src/app/          # tray, settings, readiness, model downloader, Main.qml
+src/app/          # tray, settings, readiness, catalog, downloader, Main.qml
 src/audio/        # resampler, wav loader, QAudioSource recorder
 src/controller/   # DictationController + ParakeetWorker (QThread)
 src/hotkey/       # KGlobalAccel push-to-talk
@@ -44,7 +44,7 @@ src/inference/    # dlopen parakeet backend (offline + streaming)
 src/insert/       # input-method-v1 + TextCommitter
 cmake/parakeet.cmake  # ExternalProject fetch of parakeet.cpp (CPU + Vulkan)
 data/protocols/   # wayland XML
-data/models.json  # default model catalog
+data/models.json  # default model catalog (v1: model + nested quants)
 ```
 
 ## Version control: Jujutsu (jj), colocated
@@ -101,6 +101,9 @@ cmake --build build
 5. Settings (`QSettings` under `kea/kea`): model path, backend (CPU/Vulkan), hotkey.
    Model path default: `$KEA_MODEL` if set, else `~/.local/share/kea/models/tdt-0.6b-v3-q8_0.gguf`.
    Offline models buffer until hotkey release; streaming models feed live.
+   Model catalog (`ModelCatalog`) drives the settings Download picker: choose model +
+   quantization, download from Hugging Face (`mudler/parakeet-cpp-gguf`). Users can
+   extend the list with `~/.config/kea/models.json` (same schema; merge by model id).
 
 ### With the parakeet backends (fetches + builds parakeet.cpp + ggml, slow on first run)
 
