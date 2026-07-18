@@ -57,6 +57,10 @@ public:
     static int styleCount() { return 4; }
     static TransformStyle styleFromInt(int v);
 
+    /// Strip labels / meta commentary so only the rewritten utterance remains.
+    /// Public for unit tests.
+    static QString sanitizeTransformOutput(const QString &raw, const QString &original);
+
 protected:
     void setError(const QString &e) { m_lastError = e; }
 

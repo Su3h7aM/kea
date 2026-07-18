@@ -117,6 +117,35 @@ int main(int argc, char *argv[])
               "style 2 professional");
     }
 
+    std::printf("[transform] sanitize strips labels and original echo\n");
+    {
+        const QString orig = QStringLiteral("helo wrld");
+        check(TextTransformer::sanitizeTransformOutput(
+                  QStringLiteral("Corrected: hello world"), orig)
+                  == QStringLiteral("hello world"),
+              "strip Corrected: label");
+        check(TextTransformer::sanitizeTransformOutput(
+                  QStringLiteral("Original: helo wrld\nCorrected: hello world"), orig)
+                  == QStringLiteral("hello world"),
+              "drop original line keep rewrite");
+        check(TextTransformer::sanitizeTransformOutput(
+                  QStringLiteral("Here is the corrected transcript: hello world"), orig)
+                  == QStringLiteral("hello world"),
+              "strip preamble");
+        check(TextTransformer::sanitizeTransformOutput(
+                  QStringLiteral("helo wrld\nhello world"), orig)
+                  == QStringLiteral("hello world"),
+              "prefer last non-echo line");
+        check(TextTransformer::sanitizeTransformOutput(
+                  QStringLiteral("\"hello world\""), orig)
+                  == QStringLiteral("hello world"),
+              "unwrap quotes");
+        check(TextTransformer::sanitizeTransformOutput(
+                  QStringLiteral("helo wrld — hello world"), orig)
+                  == QStringLiteral("hello world"),
+              "strip leading original + separator");
+    }
+
     std::printf("[transform] FakeTransformer\n");
     {
         FakeTransformer f;

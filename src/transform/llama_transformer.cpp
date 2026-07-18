@@ -146,11 +146,16 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
         return QString();
     }
 
-    // LFM2.5 ChatML-like template (Liquid docs).
+    // LFM2.5 ChatML-like template. User turn is deliberately short and forbids
+    // meta text; small models still sometimes add labels — sanitized below.
     const QString system = stylePrompt(style);
     const QString prompt = QStringLiteral(
                                "<|startoftext|><|im_start|>system\n%1<|im_end|>\n"
-                               "<|im_start|>user\nTranscript:\n%2\n\nRewritten:<|im_end|>\n"
+                               "<|im_start|>user\n"
+                               "Rewrite this transcript. Reply with only the rewritten "
+                               "text, nothing else.\n\n"
+                               "%2"
+                               "<|im_end|>\n"
                                "<|im_start|>assistant\n")
                                .arg(system, trimmed);
 
@@ -178,8 +183,10 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
         return utterance;
     }
 
+    // Cap generation near input length so the model cannot ramble or restate
+    // the task. ~2× input tokens (by chars/3 heuristic) with a modest floor.
+    const int maxNew = qBound(64, (trimmed.size() / 2) + 32, 256);
     std::string out;
-    const int maxNew = 512;
     for (int i = 0; i < maxNew; ++i) {
         const llama_token id = llama_sampler_sample(m_impl->sampler, m_impl->ctx, -1);
         if (llama_vocab_is_eog(vocab, id)) {
@@ -200,15 +207,18 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
             out = out.substr(0, out.find("<|im_end|>"));
             break;
         }
+        // Early stop on a double newline after some content (meta after answer).
+        if (out.size() > 8) {
+            const auto pos = out.find("\n\n");
+            if (pos != std::string::npos && pos > 0) {
+                out = out.substr(0, pos);
+                break;
+            }
+        }
     }
 
-    QString result = QString::fromUtf8(out.c_str(), int(out.size())).trimmed();
-    // Strip common wrappers if the tiny model adds quotes.
-    if (result.size() >= 2
-        && ((result.startsWith(QLatin1Char('"')) && result.endsWith(QLatin1Char('"')))
-            || (result.startsWith(QLatin1Char('\'')) && result.endsWith(QLatin1Char('\''))))) {
-        result = result.mid(1, result.size() - 2).trimmed();
-    }
+    QString result = sanitizeTransformOutput(
+        QString::fromUtf8(out.c_str(), int(out.size())), trimmed);
     if (result.isEmpty()) {
         setError(QStringLiteral("empty LLM output — using raw transcript"));
         return utterance;
