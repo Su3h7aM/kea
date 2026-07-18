@@ -66,8 +66,9 @@ QString AppSettings::defaultLlmModelPath()
     if (!env.isEmpty()) {
         return QString::fromUtf8(env);
     }
-    // Default recommended quant for LFM2.5-230M.
-    return defaultLlmModelsDir() + QStringLiteral("/LFM2.5-230M-Q4_K_M.gguf");
+    // Default: LFM2.5 1.2B Instruct Q4_K_M (better polish than 230M).
+    return defaultLlmModelsDir()
+        + QStringLiteral("/LFM2.5-1.2B-Instruct-Q4_K_M.gguf");
 }
 
 AppSettings::AppSettings(QObject *parent)
@@ -277,6 +278,12 @@ QString AppSettings::resolveLlmModelPath()
     const QString dir = defaultLlmModelsDir();
     const QStringList preferred = {
         defaultLlmModelPath(),
+        dir + QStringLiteral("/LFM2.5-1.2B-Instruct-Q4_K_M.gguf"),
+        dir + QStringLiteral("/LFM2.5-1.2B-Instruct-Q4_0.gguf"),
+        dir + QStringLiteral("/LFM2.5-1.2B-Instruct-Q5_K_M.gguf"),
+        dir + QStringLiteral("/LFM2.5-1.2B-Instruct-Q8_0.gguf"),
+        dir + QStringLiteral("/LFM2.5-1.2B-Instruct-Q6_K.gguf"),
+        dir + QStringLiteral("/LFM2.5-1.2B-Instruct-F16.gguf"),
         dir + QStringLiteral("/LFM2.5-230M-Q4_K_M.gguf"),
         dir + QStringLiteral("/LFM2.5-230M-Q8_0.gguf"),
         dir + QStringLiteral("/LFM2.5-230M-Q4_0.gguf"),

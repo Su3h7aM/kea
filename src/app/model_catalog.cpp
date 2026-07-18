@@ -79,7 +79,7 @@ ModelCatalog *ModelCatalog::createLlmCatalog(QObject *parent)
         QStringLiteral("kea/llm_models.json"),
         QStringLiteral("llm_models.json"),
         QStringLiteral("llm-models"),
-        QStringLiteral("lfm2.5-230m"),
+        QStringLiteral("lfm2.5-1.2b-instruct"),
         QStringLiteral("q4_k_m"),
         parent);
 }
