@@ -53,16 +53,35 @@ bool InsertionRouter::tryInputMethod(const QString &text, QString *errorOut)
         if (errorOut) {
             *errorOut = QStringLiteral("no text committer");
         }
+        qWarning() << "Kea: insert IM skipped — TextCommitter not attached";
+        return false;
+    }
+    if (!m_committer->canCommit()) {
+        // KWin only activates our IM context when the focused client enables
+        // text-input (v2/v3). No context ⇒ client never opened a text field
+        // session (common with some terminals / custom widgets).
+        if (errorOut) {
+            *errorOut = QStringLiteral(
+                "no text-input context (focused app did not enable text-input / IM)");
+        }
+        qWarning().nospace()
+            << "Kea: insert IM unavailable — no text-input context "
+            << "(focused client did not enable text-input; "
+            << "KWin never activated input-method-v1). chars=" << text.size();
         return false;
     }
     if (m_committer->commitText(text)) {
         return true;
     }
+    // Context was live but commit still failed (torn down mid-call, etc.).
+    const QString err = m_committer->lastError().isEmpty()
+        ? QStringLiteral("commit_string failed with live context")
+        : m_committer->lastError();
     if (errorOut) {
-        *errorOut = m_committer->lastError().isEmpty()
-            ? QStringLiteral("no active text field")
-            : m_committer->lastError();
+        *errorOut = err;
     }
+    qWarning().nospace() << "Kea: insert IM failed with live context: " << err
+                         << " chars=" << text.size();
     return false;
 }
 
@@ -110,6 +129,9 @@ InsertionRouter::Result InsertionRouter::insertText(const QString &text)
         return r;
     }
     const QString priorFailure = stepErr;
+    qInfo().nospace() << "Kea: insert chain continuing after IM miss — reason=\""
+                      << priorFailure << "\" chars=" << text.size()
+                      << " clipboardFallback=" << m_clipboardFallback;
 
     // --- Step 2: future inject backends (key inject / portal / helper) ----
     // Intentionally empty. When added, try them here and return Path::Inject
@@ -122,8 +144,9 @@ InsertionRouter::Result InsertionRouter::insertText(const QString &text)
         r.detail = priorFailure;
         m_lastPath = r.path;
         m_lastDetail = r.detail;
-        qWarning().nospace() << "Kea: insert failed (no last-resort clipboard): "
-                             << priorFailure << " chars=" << text.size();
+        qWarning().nospace()
+            << "Kea: insert failed — IM unavailable and clipboard last-resort is OFF. "
+            << "reason=\"" << priorFailure << "\" chars=" << text.size();
         return r;
     }
 
@@ -134,8 +157,10 @@ InsertionRouter::Result InsertionRouter::insertText(const QString &text)
         r.detail = QStringLiteral("%1; clipboard failed: %2").arg(priorFailure, clipErr);
         m_lastPath = r.path;
         m_lastDetail = r.detail;
-        qWarning().nospace() << "Kea: insert failed (IM + last-resort clipboard): "
-                             << r.detail << " chars=" << text.size();
+        qWarning().nospace()
+            << "Kea: insert failed — IM unavailable and clipboard write failed. "
+            << "im=\"" << priorFailure << "\" clip=\"" << clipErr
+            << "\" chars=" << text.size();
         return r;
     }
 
@@ -146,8 +171,10 @@ InsertionRouter::Result InsertionRouter::insertText(const QString &text)
         "(last-resort fallback). Paste with Ctrl+V (or Shift+Insert in many terminals).");
     m_lastPath = r.path;
     m_lastDetail = r.detail;
-    qInfo().nospace() << "Kea: insert path=clipboard (last resort) chars=" << text.size()
-                      << " reason=" << priorFailure;
+    qInfo().nospace()
+        << "Kea: insert path=clipboard (last resort) chars=" << text.size()
+        << " — direct caret insert needs a text-input session; "
+        << "IM reason=\"" << priorFailure << "\"";
     Q_EMIT inserted(r.path, text);
     return r;
 }

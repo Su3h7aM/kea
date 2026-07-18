@@ -44,7 +44,8 @@ void InputMethod::zwp_input_method_v1_activate(struct ::zwp_input_method_context
         m_context.reset();
     }
     m_context = std::make_unique<InputMethodContext>(id, this);
-    qInfo() << "Kea: input-method activate (new context)";
+    // KWin only sends activate when a client enables text-input on a surface.
+    qInfo() << "Kea: input-method activate — client enabled text-input (new context)";
     Q_EMIT contextChanged(m_context.get());
     Q_EMIT activated();
 }
@@ -55,7 +56,7 @@ void InputMethod::zwp_input_method_v1_deactivate(struct ::zwp_input_method_conte
     if (!m_context) {
         return;
     }
-    qInfo().nospace() << "Kea: input-method deactivate"
+    qInfo().nospace() << "Kea: input-method deactivate — text-input session ended"
                       << " serial=" << m_context->serial()
                       << " sawCommitState=" << m_context->hasReceivedCommitState()
                       << " purpose=" << m_context->contentPurpose()
