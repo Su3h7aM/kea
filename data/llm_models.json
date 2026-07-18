@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "lfm2.5-230m",
+      "name": "LFM2.5 230M (Liquid AI)",
+      "description": "Small on-device instruct model for fixing and polishing ASR transcripts. Recommended for Kea post-processing.",
+      "streaming": false,
+      "source": "https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF",
+      "defaultQuant": "q4_k_m",
+      "quants": [
+        {
+          "id": "q4_0",
+          "label": "Q4_0",
+          "filename": "LFM2.5-230M-Q4_0.gguf",
+          "url": "https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF/resolve/main/LFM2.5-230M-Q4_0.gguf",
+          "sizeBytes": 149080928,
+          "sizeHint": "~142 MB"
+        },
+        {
+          "id": "q4_k_m",
+          "label": "Q4_K_M",
+          "filename": "LFM2.5-230M-Q4_K_M.gguf",
+          "url": "https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF/resolve/main/LFM2.5-230M-Q4_K_M.gguf",
+          "sizeBytes": 153406304,
+          "sizeHint": "~146 MB",
+          "recommended": true
+        },
+        {
+          "id": "q5_k_m",
+          "label": "Q5_K_M",
+          "filename": "LFM2.5-230M-Q5_K_M.gguf",
+          "url": "https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF/resolve/main/LFM2.5-230M-Q5_K_M.gguf",
+          "sizeBytes": 171625312,
+          "sizeHint": "~164 MB"
+        },
+        {
+          "id": "q6_k",
+          "label": "Q6_K",
+          "filename": "LFM2.5-230M-Q6_K.gguf",
+          "url": "https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF/resolve/main/LFM2.5-230M-Q6_K.gguf",
+          "sizeBytes": 190983008,
+          "sizeHint": "~182 MB"
+        },
+        {
+          "id": "q8_0",
+          "label": "Q8_0",
+          "filename": "LFM2.5-230M-Q8_0.gguf",
+          "url": "https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF/resolve/main/LFM2.5-230M-Q8_0.gguf",
+          "sizeBytes": 246598496,
+          "sizeHint": "~235 MB"
+        },
+        {
+          "id": "f16",
+          "label": "F16",
+          "filename": "LFM2.5-230M-F16.gguf",
+          "url": "https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF/resolve/main/LFM2.5-230M-F16.gguf",
+          "sizeBytes": 461884256,
+          "sizeHint": "~440 MB"
+        }
+      ]
+    }
+  ],
+  "notes": "LLM catalog for Kea post-processing (issue #6). Same schema as ASR models.json. User overrides: ~/.config/kea/llm_models.json. Files install under ~/.local/share/kea/llm-models/."
+}

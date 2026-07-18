@@ -21,8 +21,11 @@ Kirigami.ApplicationWindow {
     id: root
 
     width: Kirigami.Units.gridUnit * 34
-    height: Kirigami.Units.gridUnit * 32
+    height: Kirigami.Units.gridUnit * 36
     title: i18nc("@title:window", "Kea")
+
+    // When set, the next successful download is treated as an LLM GGUF.
+    property string _pendingLlmDownload: ""
 
     // Show settings on first launch so the user can complete onboarding.
     Component.onCompleted: {
@@ -258,6 +261,48 @@ Kirigami.ApplicationWindow {
                     }
                 }
 
+                Controls.CheckBox {
+                    Kirigami.FormData.label: i18nc("@label", "Post-process")
+                    text: i18nc("@option", "Polish transcript with local LLM")
+                    checked: _settings ? _settings.postProcessEnabled : false
+                    onToggled: {
+                        if (_settings)
+                            _settings.postProcessEnabled = checked
+                    }
+                }
+
+                Controls.ComboBox {
+                    id: styleBox
+                    Kirigami.FormData.label: i18nc("@label", "Style")
+                    enabled: _settings && _settings.postProcessEnabled
+                    model: [
+                        i18nc("@item", "Correct (default)"),
+                        i18nc("@item", "Enhance"),
+                        i18nc("@item", "Professional"),
+                        i18nc("@item", "Casual")
+                    ]
+                    currentIndex: _settings ? _settings.postProcessStyle : 0
+                    onActivated: (index) => {
+                        if (_settings)
+                            _settings.postProcessStyle = index
+                    }
+                }
+
+                Controls.Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    opacity: 0.7
+                    visible: _settings && _settings.postProcessEnabled
+                    text: {
+                        if (!_settings)
+                            return ""
+                        if (_settings.llmModelFileExists)
+                            return i18nc("@info", "LLM model: %1", _settings.llmModelPath)
+                        return i18nc("@info",
+                            "Download an LLM model below (LFM2.5 230M recommended). Without it, raw ASR is used.")
+                    }
+                }
+
                 Controls.Button {
                     text: i18nc("@action:button", "Mark setup complete")
                     visible: _settings && !_settings.onboardingDone
@@ -484,6 +529,152 @@ Kirigami.ApplicationWindow {
                 }
             }
 
+            // --- LLM post-process model download ---
+            Kirigami.Heading {
+                text: i18nc("@title:group", "Post-process LLM")
+                level: 2
+            }
+
+            Kirigami.FormLayout {
+                Layout.fillWidth: true
+                enabled: (_dictation ? _dictation.canConfigure : true)
+                         && !(_downloader && _downloader.busy)
+
+                Controls.ComboBox {
+                    id: llmModelBox
+                    Kirigami.FormData.label: i18nc("@label", "LLM model")
+                    Layout.fillWidth: true
+                    model: _llmCatalog ? _llmCatalog.models : []
+                    textRole: "name"
+                    Component.onCompleted: selectDefaultLlm()
+                    onCountChanged: {
+                        if (currentIndex < 0)
+                            selectDefaultLlm()
+                    }
+                    onActivated: (index) => refreshLlmQuants(index)
+
+                    function selectDefaultLlm() {
+                        if (!_llmCatalog || !_llmCatalog.models)
+                            return
+                        const models = _llmCatalog.models
+                        const want = _llmCatalog.defaultModelId()
+                        for (let i = 0; i < models.length; ++i) {
+                            if (models[i].id === want) {
+                                currentIndex = i
+                                refreshLlmQuants(i)
+                                return
+                            }
+                        }
+                        if (models.length > 0) {
+                            currentIndex = 0
+                            refreshLlmQuants(0)
+                        }
+                    }
+
+                    function refreshLlmQuants(index) {
+                        if (!_llmCatalog || index < 0 || index >= _llmCatalog.models.length) {
+                            llmQuantBox.model = []
+                            return
+                        }
+                        const mid = _llmCatalog.models[index].id
+                        llmQuantBox.model = _llmCatalog.quantsFor(mid)
+                        const pref = _llmCatalog.preferredQuant(mid)
+                        let qi = 0
+                        if (pref && pref.id) {
+                            for (let i = 0; i < llmQuantBox.model.length; ++i) {
+                                if (llmQuantBox.model[i].id === pref.id) {
+                                    qi = i
+                                    break
+                                }
+                            }
+                        }
+                        llmQuantBox.currentIndex = qi
+                    }
+
+                    function selectedModel() {
+                        if (!_llmCatalog || currentIndex < 0 || currentIndex >= _llmCatalog.models.length)
+                            return null
+                        return _llmCatalog.models[currentIndex]
+                    }
+                }
+
+                Controls.ComboBox {
+                    id: llmQuantBox
+                    Kirigami.FormData.label: i18nc("@label", "Quantization")
+                    Layout.fillWidth: true
+                    model: []
+                    textRole: "display"
+                    function selectedQuant() {
+                        if (currentIndex < 0 || currentIndex >= model.length)
+                            return null
+                        return model[currentIndex]
+                    }
+                }
+
+                Controls.Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    opacity: 0.75
+                    text: {
+                        const m = llmModelBox.selectedModel()
+                        return m ? (m.description || "") : ""
+                    }
+                }
+
+                Controls.Button {
+                    text: {
+                        const m = llmModelBox.selectedModel()
+                        const q = llmQuantBox.selectedQuant()
+                        if (m && q && _llmCatalog && _llmCatalog.isAvailable(m.id, q.id))
+                            return i18nc("@action:button", "Use this LLM")
+                        return i18nc("@action:button", "Download LLM")
+                    }
+                    enabled: {
+                        if (!_downloader || !_llmCatalog)
+                            return false
+                        const m = llmModelBox.selectedModel()
+                        const q = llmQuantBox.selectedQuant()
+                        if (!m || !q)
+                            return false
+                        if (_llmCatalog.isAvailable(m.id, q.id))
+                            return true
+                        return !!q.downloadable
+                    }
+                    onClicked: {
+                        if (!_downloader || !_settings || !_llmCatalog)
+                            return
+                        const m = llmModelBox.selectedModel()
+                        const q = llmQuantBox.selectedQuant()
+                        if (!m || !q)
+                            return
+                        if (_llmCatalog.isAvailable(m.id, q.id)) {
+                            _settings.llmModelPath = _llmCatalog.resolvedPath(m.id, q.id)
+                            return
+                        }
+                        const dest = _llmCatalog.downloadDest(m.id, q.id)
+                        const size = q.sizeBytes ? Number(q.sizeBytes) : 0
+                        const sha = q.sha256 ? String(q.sha256) : ""
+                        // Tag path so onFinished can route to llmModelPath.
+                        _downloader.download(q.url, dest, sha, size)
+                        root._pendingLlmDownload = dest
+                    }
+                }
+            }
+
+            Controls.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.65
+                text: {
+                    const path = _llmCatalog ? _llmCatalog.userCatalogPath
+                                             : "~/.config/kea/llm_models.json"
+                    return i18nc("@info",
+                        "Custom LLM entries: %1 (same schema; merge by model id). " +
+                        "Files install under ~/.local/share/kea/llm-models/.",
+                        path)
+                }
+            }
+
             Kirigami.InlineMessage {
                 Layout.fillWidth: true
                 visible: _catalog && _catalog.lastError.length > 0
@@ -558,6 +749,16 @@ Kirigami.ApplicationWindow {
     Connections {
         target: _downloader
         function onFinished(localPath) {
+            if (root._pendingLlmDownload && localPath === root._pendingLlmDownload) {
+                root._pendingLlmDownload = ""
+                if (_settings)
+                    _settings.llmModelPath = localPath
+                if (_llmCatalog)
+                    _llmCatalog.refreshAvailability()
+                if (llmModelBox.currentIndex >= 0)
+                    llmModelBox.refreshLlmQuants(llmModelBox.currentIndex)
+                return
+            }
             if (_settings)
                 _settings.modelPath = localPath
             if (_catalog)

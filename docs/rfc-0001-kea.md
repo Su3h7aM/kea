@@ -282,7 +282,7 @@ Snapshot of the tree relative to the goals above. **Update this section when shi
 | Flatpak/AppImage | Missing |
 | KConfigXT / KCM | Not started (`QSettings` in tree; accepted for first cut) |
 | KeySequenceItem hotkey capture | Present (`org.kde.kquickcontrols.KeySequenceItem`) |
-| LLM transform pipeline | Design only (separate issue) |
+| LLM transform pipeline | Present (llama.cpp + LFM catalog; preedit-gated commit) |
 | Transcript history | Design only (separate issue) |
 
 ---

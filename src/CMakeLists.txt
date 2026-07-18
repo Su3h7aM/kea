@@ -30,12 +30,40 @@ target_sources(kea
         controller/parakeet_worker.cpp
         controller/dictation_controller.h
         controller/dictation_controller.cpp
+        transform/text_transformer.h
+        transform/text_transformer.cpp
+        transform/transform_worker.h
+        transform/transform_worker.cpp
+        transform/llama_transformer.h
+        transform/llama_transformer.cpp
 )
 
-# Dev/install fallback so ModelCatalog finds data/models.json before install.
+# Dev/install fallback so ModelCatalog finds data/* before install.
 target_compile_definitions(kea PRIVATE
     KEA_MODELS_JSON="${CMAKE_SOURCE_DIR}/data/models.json"
+    KEA_LLM_MODELS_JSON="${CMAKE_SOURCE_DIR}/data/llm_models.json"
 )
+
+# llama.cpp for LLM post-processing (optional).
+include(${CMAKE_SOURCE_DIR}/cmake/llama.cmake)
+if(KEA_BUILD_LLAMA)
+    add_dependencies(kea llama_cpp)
+    target_compile_definitions(kea PRIVATE KEA_HAS_LLAMA=1)
+    target_include_directories(kea PRIVATE
+        "${CMAKE_BINARY_DIR}/llama/src/include"
+        "${CMAKE_BINARY_DIR}/llama/src" # some headers live at repo root historically
+    )
+    # Runtime: libllama.so and libggml*.so live under llama/build/bin.
+    target_link_directories(kea PRIVATE
+        "${CMAKE_BINARY_DIR}/llama/build/bin"
+        "${CMAKE_BINARY_DIR}/llama/build"
+    )
+    target_link_libraries(kea PRIVATE llama)
+    # RPATH so the binary finds the build-tree libs without install.
+    set_target_properties(kea PROPERTIES
+        BUILD_RPATH "${CMAKE_BINARY_DIR}/llama/build/bin;${CMAKE_BINARY_DIR}/llama/build"
+    )
+endif()
 
 ecm_target_qml_sources(kea
     SOURCES
@@ -159,6 +187,7 @@ target_link_libraries(kea-model-catalog-test
 )
 target_compile_definitions(kea-model-catalog-test PRIVATE
     KEA_MODELS_JSON="${CMAKE_SOURCE_DIR}/data/models.json"
+    KEA_LLM_MODELS_JSON="${CMAKE_SOURCE_DIR}/data/llm_models.json"
 )
 add_test(NAME model_catalog COMMAND kea-model-catalog-test)
 
@@ -174,6 +203,9 @@ add_executable(kea-controller-test controller_test.cpp
     controller/dictation_controller.cpp
     controller/inference_worker.cpp
     controller/parakeet_worker.cpp
+    transform/text_transformer.cpp
+    transform/transform_worker.cpp
+    transform/llama_transformer.cpp
     hotkey/global_hotkey.cpp
 )
 target_link_libraries(kea-controller-test
@@ -188,6 +220,31 @@ target_link_libraries(kea-controller-test
         kea_insert
 )
 add_test(NAME controller COMMAND kea-controller-test)
+
+# Transform prompts + gated controller path (FakeTransformer, no llama runtime).
+add_executable(kea-transform-test transform_test.cpp
+    logging.cpp
+    app/app_settings.cpp
+    controller/dictation_controller.cpp
+    controller/inference_worker.cpp
+    controller/parakeet_worker.cpp
+    transform/text_transformer.cpp
+    transform/transform_worker.cpp
+    transform/llama_transformer.cpp
+    hotkey/global_hotkey.cpp
+)
+target_link_libraries(kea-transform-test
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Multimedia
+        KF6::GlobalAccel
+        KF6::I18n
+        kea_audio
+        kea_inference
+        kea_insert
+)
+add_test(NAME transform COMMAND kea-transform-test)
 
 # --- Inference static lib: the dlopen loader. ---
 # Compiles without the upstream header (opaque types declared in the .cpp), so

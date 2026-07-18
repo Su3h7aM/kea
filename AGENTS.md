@@ -39,12 +39,15 @@ software actually hosted under KDE. Keep this in mind when adding new identifier
 src/app/          # tray, settings, readiness, catalog, downloader, Main.qml
 src/audio/        # resampler, wav loader, QAudioSource recorder
 src/controller/   # DictationController + InferenceWorker + ParakeetWorker
+src/transform/    # LLM post-process (TextTransformer, llama.cpp, styles)
 src/hotkey/       # KGlobalAccel push-to-talk
 src/inference/    # dlopen parakeet backend (offline + streaming)
 src/insert/       # input-method-v1 + TextCommitter
 cmake/parakeet.cmake  # ExternalProject fetch of parakeet.cpp (CPU + Vulkan)
+cmake/llama.cmake     # Optional ExternalProject fetch of llama.cpp
 data/protocols/   # wayland XML
-data/models.json  # default model catalog (v1: model + nested quants)
+data/models.json  # ASR catalog (v1: model + nested quants)
+data/llm_models.json  # LLM catalog (LFM2.5-230M, …)
 ```
 
 ## Version control: Jujutsu (jj), colocated

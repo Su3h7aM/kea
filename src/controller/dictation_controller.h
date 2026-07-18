@@ -25,6 +25,8 @@ class AppSettings;
 class GlobalHotkey;
 class InferenceWorker;
 class InsertionRouter;
+class TextTransformer;
+class TransformWorker;
 
 class DictationController : public QObject
 {
@@ -50,14 +52,21 @@ public:
     };
     Q_ENUM(State)
 
-    /// Production: owns a ParakeetWorker on a dedicated thread + AudioRecorder.
+    /// Production: owns a ParakeetWorker on a dedicated thread + AudioRecorder
+    /// + TransformWorker (LLM post-process on its own thread).
     explicit DictationController(AppSettings *settings, QObject *parent = nullptr);
 
-    /// Test seam: use an external worker and recorder (neither is owned; worker
-    /// is not moved to a background thread — same-thread for deterministic tests).
+    /// Test seam: external ASR worker + recorder (not owned; same-thread).
     DictationController(AppSettings *settings,
                         InferenceWorker *worker,
                         AudioRecorder *recorder,
+                        QObject *parent = nullptr);
+
+    /// Test seam: also inject a TextTransformer (runs same-thread via TransformWorker).
+    DictationController(AppSettings *settings,
+                        InferenceWorker *worker,
+                        AudioRecorder *recorder,
+                        TextTransformer *transformer,
                         QObject *parent = nullptr);
 
     ~DictationController() override;
@@ -111,11 +120,14 @@ private Q_SLOTS:
     void onTextFinalized(const QString &text, int eouMask);
     void onSessionFinished(const QString &text, const QString &error);
     void onSessionCancelled();
+    void onTransformFinished(quint64 requestId, const QString &text, const QString &error);
+    void onTransformModelReady(bool ok, const QString &error);
 
 private:
     void initCommon(AppSettings *settings);
     void wireWorker();
     void wireRecorder();
+    void setupTransform(TextTransformer *externalTransformer);
     void setState(State s);
     void setStatus(const QString &text);
     void setError(const QString &err);
@@ -127,6 +139,10 @@ private:
     /// If unloadModel() was deferred because a Draining session was still in
     /// flight, actually unload now that the session has resolved.
     void maybeUnloadAfterDrain();
+    bool postProcessActive() const;
+    void ensureTransformModelLoaded();
+    void deliverFinalText(const QString &text);
+    void queueTransform(const QString &utterance);
 
     AppSettings *m_settings = nullptr;
     InsertionRouter *m_inserter = nullptr;
@@ -138,6 +154,13 @@ private:
     QThread m_workerThread;
     InferenceWorker *m_worker = nullptr;
     bool m_ownWorker = true;
+
+    QThread m_transformThread;
+    TransformWorker *m_transformWorker = nullptr;
+    TextTransformer *m_transformer = nullptr;
+    bool m_ownTransformer = true;
+    bool m_transformModelReady = false;
+    bool m_transformLoadPending = false;
 
     State m_state = State::Idle;
     QString m_statusText;
@@ -152,6 +175,12 @@ private:
     /// running on the worker thread); actually unload once it resolves.
     bool m_unloadAfterDrain = false;
     ActivationMode m_activationMode = ActivationMode::PushToTalk;
+
+    /// Buffered ASR text while post-process is on (shown via preedit).
+    QString m_utteranceBuffer;
+    quint64 m_transformRequestId = 0;
+    quint64 m_pendingTransformId = 0;
+    bool m_transformInFlight = false;
 };
 
 } // namespace kea

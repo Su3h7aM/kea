@@ -228,9 +228,11 @@ int main(int argc, char *argv[])
         check(ModelCatalog::parseCatalogJson(json, &entries, &err), "parse path-only");
         check(entries.size() == 1, "1 model");
         check(entries[0].quants[0].url.isEmpty(), "no url");
-        check(ModelCatalog::resolveQuantPath(entries[0].quants[0]) == modelPath,
-              "resolveQuantPath");
-        check(QFileInfo::exists(ModelCatalog::resolveQuantPath(entries[0].quants[0])),
+        check(ModelCatalog::resolveQuantPath(entries[0].quants[0], QStringLiteral("/unused"))
+                  == modelPath,
+              "resolveQuantPath prefers explicit path");
+        check(QFileInfo::exists(
+                  ModelCatalog::resolveQuantPath(entries[0].quants[0], QStringLiteral("/x"))),
               "file exists");
 
         // expand ~
@@ -250,7 +252,8 @@ int main(int argc, char *argv[])
 
     std::printf("[catalog] load bundled models.json if present\n");
     {
-        const QString path = ModelCatalog::bundledCatalogPath();
+        const QString path = ModelCatalog::locateBundledCatalog(
+            QString::fromUtf8(KEA_MODELS_JSON), QStringLiteral("kea/models.json"));
         if (path.isEmpty()) {
             std::printf("  skip bundled path not found (ok in some CI layouts)\n");
         } else {

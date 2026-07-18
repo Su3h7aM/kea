@@ -60,12 +60,26 @@ class ModelCatalog : public QObject
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
 public:
+    /// ASR catalog (data/models.json → ~/.local/share/kea/models).
     explicit ModelCatalog(QObject *parent = nullptr);
+
+    /// Custom catalog roots (LLM post-process models, etc.).
+    ModelCatalog(const QString &compileTimeBundledPath,
+                 const QString &installRelativePath,
+                 const QString &userFileName,
+                 const QString &modelsDirName,
+                 const QString &defaultModelId,
+                 const QString &defaultQuantId,
+                 QObject *parent = nullptr);
+
+    /// Factory for the LLM post-processing catalog (LFM, …).
+    static ModelCatalog *createLlmCatalog(QObject *parent = nullptr);
 
     QVariantList models() const { return m_modelsVariant; }
     int count() const { return m_entries.size(); }
     QVariantList availableSelections() const;
-    QString userCatalogPath() const;
+    QString userCatalogPath() const { return m_userCatalogPath; }
+    QString modelsDirectory() const { return m_modelsDir; }
     QString lastError() const { return m_lastError; }
 
     const QVector<ModelEntry> &entries() const { return m_entries; }
@@ -117,13 +131,17 @@ public:
     static QVector<ModelEntry> mergeCatalogs(const QVector<ModelEntry> &base,
                                              const QVector<ModelEntry> &user);
 
-    /// Locate the bundled catalog file (install path, then build-time path).
-    static QString bundledCatalogPath();
+    /// Locate a bundled catalog (compile-time path, then install relative).
+    static QString locateBundledCatalog(const QString &compileTimePath,
+                                        const QString &installRelative);
 
     static QString defaultUserCatalogPath();
+    static QString defaultLlmUserCatalogPath();
+    static QString defaultLlmModelsDir();
 
     /// Resolve where a quant lives on disk (explicit path wins).
-    static QString resolveQuantPath(const ModelQuant &q);
+    QString resolveQuantPath(const ModelQuant &q) const;
+    static QString resolveQuantPath(const ModelQuant &q, const QString &modelsDir);
 
 Q_SIGNALS:
     void modelsChanged();
@@ -144,6 +162,12 @@ private:
     QVector<ModelEntry> m_entries;
     QVariantList m_modelsVariant;
     QString m_lastError;
+    QString m_bundledCompileTime;
+    QString m_installRelative;
+    QString m_userCatalogPath;
+    QString m_modelsDir;
+    QString m_defaultModelId;
+    QString m_defaultQuantId;
 };
 
 } // namespace kea
