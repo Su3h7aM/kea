@@ -230,7 +230,7 @@ Bind KWin’s `zwp_input_method_v1`. On activate, own a `zwp_input_method_contex
 
 **Commit path (goal):**
 
-1. Active, valid context. Serial is the latest `commit_state` value; until the first `commit_state` arrives the wire value is conventionally `0`. **Goal:** treat “serial known” (at least one `commit_state` received) as part of the commit guard, not only object lifetime. **Tree today:** serial defaults to `0` and `isValid()` is lifetime-only — tracked as incomplete in §8 (R2).
+1. Active, valid context. Serial is the latest `commit_state` value; until the first `commit_state` arrives the wire value is conventionally `0`. **`InputMethodContext::isValid()` requires at least one `commit_state`** (serial known), not only object lifetime — TextCommitter skips commits until then (R2).
 2. Finalized ASR text → `commit_string(serial, text)`.
 3. Unfinished / gated text → `preedit_string` (live feedback; also the seam for future transform-before-commit).
 4. On session end: commit tail, clear preedit.
@@ -278,10 +278,10 @@ Snapshot of the tree relative to the goals above. **Update this section when shi
 | Floating listening indicator | Missing |
 | Esc-cancel binding | Missing (tray cancel exists) |
 | Silent commit failure UX (G9) | Partial / weak |
-| R2 serial guard before first `commit_state` | Incomplete (serial defaults to 0; validity is context-only) |
+| R2 serial guard before first `commit_state` | Present (`isValid` requires `commit_state`; committer tests) |
 | Flatpak/AppImage | Missing |
 | KConfigXT / KCM | Not started (`QSettings` in tree; accepted for first cut) |
-| KeySequenceItem hotkey capture | Not started (free-text field) |
+| KeySequenceItem hotkey capture | Present (`org.kde.kquickcontrols.KeySequenceItem`) |
 | LLM transform pipeline | Design only (separate issue) |
 | Transcript history | Design only (separate issue) |
 

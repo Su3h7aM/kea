@@ -108,6 +108,30 @@ int main(int argc, char *argv[])
         check(mock.commits.empty(), "no transport call after invalidation");
     }
 
+    // Models InputMethodContext R2 behaviour: isValid is false until the
+    // compositor's first commit_state (serial known). Mocks encode that as
+    // valid=false until the test "receives" commit_state.
+    std::printf("[committer] R2: skip commits before serial/commit_state ready\n");
+    {
+        MockContext mock;
+        mock.valid = false; // no commit_state yet
+        mock.ser = 0;
+        TextCommitter c;
+        c.setContext(&mock);
+        check(!c.canCommit(), "cannot commit before commit_state");
+        check(!c.commitText(QStringLiteral("early")), "pre-serial commit skipped");
+        check(mock.commits.empty(), "no wire traffic before serial ready");
+        check(c.skippedCount() >= 1, "skippedCount incremented");
+
+        // First commit_state arrives (serial may still be 0 — that is OK).
+        mock.valid = true;
+        mock.ser = 0;
+        check(c.canCommit(), "can commit after commit_state (serial 0 allowed)");
+        check(c.commitText(QStringLiteral("ok")), "commit after serial ready");
+        check(mock.commits.size() == 1 && mock.commits[0] == QStringLiteral("ok"),
+              "commit delivered after serial ready");
+    }
+
     std::printf("[committer] detach context on deactivate\n");
     {
         MockContext mock;

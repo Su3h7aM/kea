@@ -24,6 +24,8 @@ target_sources(kea
         app/model_verify.cpp
         hotkey/global_hotkey.h
         hotkey/global_hotkey.cpp
+        controller/inference_worker.h
+        controller/inference_worker.cpp
         controller/parakeet_worker.h
         controller/parakeet_worker.cpp
         controller/dictation_controller.h
@@ -165,11 +167,12 @@ add_executable(kea-insertion-router-test insertion_router_test.cpp)
 target_link_libraries(kea-insertion-router-test PRIVATE Qt6::Core Qt6::Gui kea_insert)
 add_test(NAME insertion-router COMMAND kea-insertion-router-test)
 
-# Headless controller smoke (missing model → Error).
+# Headless controller state machine (fake worker + fake mic inject seam).
 add_executable(kea-controller-test controller_test.cpp
     logging.cpp
     app/app_settings.cpp
     controller/dictation_controller.cpp
+    controller/inference_worker.cpp
     controller/parakeet_worker.cpp
     hotkey/global_hotkey.cpp
 )
@@ -225,6 +228,18 @@ add_dependencies(kea-parakeet-backend-test kea-fake-parakeet-capi)
 target_compile_definitions(kea-parakeet-backend-test PRIVATE
     KEA_FAKE_PARAKEET_LIB="$<TARGET_FILE:kea-fake-parakeet-capi>")
 add_test(NAME parakeet_backend COMMAND kea-parakeet-backend-test)
+
+# ParakeetWorker offline/streaming session paths against the fake C-API.
+add_executable(kea-parakeet-worker-test parakeet_worker_test.cpp
+    controller/inference_worker.cpp
+    controller/parakeet_worker.cpp
+    logging.cpp
+)
+target_link_libraries(kea-parakeet-worker-test PRIVATE Qt6::Core kea_inference)
+add_dependencies(kea-parakeet-worker-test kea-fake-parakeet-capi)
+target_compile_definitions(kea-parakeet-worker-test PRIVATE
+    KEA_FAKE_PARAKEET_LIB="$<TARGET_FILE:kea-fake-parakeet-capi>")
+add_test(NAME parakeet_worker COMMAND kea-parakeet-worker-test)
 
 # --- Phase 0 smoke test: load a backend, transcribe a WAV. ---
 # Only when the parakeet backends are actually built (it needs the .so files).

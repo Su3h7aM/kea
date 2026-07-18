@@ -11,7 +11,7 @@
 namespace kea {
 
 ParakeetWorker::ParakeetWorker(QObject *parent)
-    : QObject(parent)
+    : InferenceWorker(parent)
 {
 }
 

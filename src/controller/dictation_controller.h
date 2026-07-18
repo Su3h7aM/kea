@@ -17,15 +17,14 @@
 #include <QObject>
 #include <QString>
 #include <QThread>
-#include <memory>
 
 namespace kea {
 
 class AudioRecorder;
 class AppSettings;
 class GlobalHotkey;
+class InferenceWorker;
 class InsertionRouter;
-class ParakeetWorker;
 
 class DictationController : public QObject
 {
@@ -51,7 +50,16 @@ public:
     };
     Q_ENUM(State)
 
+    /// Production: owns a ParakeetWorker on a dedicated thread + AudioRecorder.
     explicit DictationController(AppSettings *settings, QObject *parent = nullptr);
+
+    /// Test seam: use an external worker and recorder (neither is owned; worker
+    /// is not moved to a background thread — same-thread for deterministic tests).
+    DictationController(AppSettings *settings,
+                        InferenceWorker *worker,
+                        AudioRecorder *recorder,
+                        QObject *parent = nullptr);
+
     ~DictationController() override;
 
     void setInsertionRouter(InsertionRouter *router);
@@ -105,6 +113,9 @@ private Q_SLOTS:
     void onSessionCancelled();
 
 private:
+    void initCommon(AppSettings *settings);
+    void wireWorker();
+    void wireRecorder();
     void setState(State s);
     void setStatus(const QString &text);
     void setError(const QString &err);
@@ -121,9 +132,12 @@ private:
     InsertionRouter *m_inserter = nullptr;
     GlobalHotkey *m_hotkey = nullptr;
 
-    std::unique_ptr<AudioRecorder> m_recorder;
+    AudioRecorder *m_recorder = nullptr;
+    bool m_ownRecorder = true;
+
     QThread m_workerThread;
-    ParakeetWorker *m_worker = nullptr;
+    InferenceWorker *m_worker = nullptr;
+    bool m_ownWorker = true;
 
     State m_state = State::Idle;
     QString m_statusText;
