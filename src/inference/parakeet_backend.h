@@ -10,15 +10,20 @@
  * shared object. This isolates the Vulkan dependency: a CPU-only system never
  * loads the Vulkan variant.
  *
- * Phase 0: this wires the load + a single-clip offline transcribe path so the
- * build can be smoke-tested end to end. The streaming entry points
- * (stream_begin/feed/finalize) are added in Phase 1.
+ * Runtime backend switch (issue #8): users can change CPU ↔ Vulkan while the
+ * app is running (Stop → pick backend → Start). Switching fully unloads the
+ * previous variant before loading the next — both ship private libggml*.so
+ * with identical SONAMEs, so a leftover mapping would silently pin the new
+ * backend to the old ggml. unload() also resets ggml's process-global
+ * std::terminate handler (installed via static init) so it does not point at
+ * unmapped code after dlclose.
  */
 #pragma once
 
 #include <QString>
 #include <functional>
 #include <memory>
+#include <optional>
 
 namespace kea {
 
@@ -67,13 +72,15 @@ public:
     static QString libraryPath(ParakeetDevice device);
 
     /// dlopen the variant and resolve symbols. Returns false on failure
-    /// (sets lastError()). Automatically unloads any previously loaded variant
-    /// first — see the SONAME collision note in the .cpp.
+    /// (sets lastError()).
+    ///
+    /// Same device already mapped → reuse (no dlclose). Different device →
+    /// full unload first, then open the new variant (runtime switch).
     bool load(ParakeetDevice device);
 
-    /// Tear down the current variant: end stream, free model ctx, dlclose.
-    /// Called automatically by load() before switching; also safe to call
-    /// directly (e.g. on shutdown).
+    /// Tear down model + stream and dlclose the library. Safe to call when
+    /// nothing is loaded. Called automatically by load() before a cross-variant
+    /// switch; also used on Stop / shutdown.
     void unload();
 
     /// Load a model GGUF into the backend's context. Returns false on failure.
@@ -106,16 +113,25 @@ public:
 
     bool hasStream() const { return m_stream != nullptr; }
 
+    /// True while a parakeet library is mapped.
     bool isLoaded() const { return m_handle != nullptr; }
-    bool hasModel() const { return m_ctx != nullptr; }
+
+    /// True when a model context is live (false after unload() until loadModel).
+    bool hasModel() const;
+
+    /// Device of the currently mapped library, if any.
+    std::optional<ParakeetDevice> loadedDevice() const;
+
     QString lastError() const { return m_lastError; }
 
 private:
     void setError(const QString &msg);
+    void freeModel();
 
     void *m_handle = nullptr;   ///< dlopen handle
     ParakeetCtxHandle *m_ctx = nullptr; ///< parakeet_ctx (opaque)
     struct parakeet_stream *m_stream = nullptr; ///< active streaming session
+    std::optional<ParakeetDevice> m_device;
     QString m_lastError;
 
     // Resolved function pointers (set by load()).

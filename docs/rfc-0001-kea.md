@@ -218,7 +218,7 @@ Central state machine (names indicative):
 
 Build two `libparakeet` shared libraries (CPU; Vulkan when available) with an identical C-API. Runtime selection via `dlopen`. CPU is always the fallback.
 
-**Backend switch:** changing CPU ↔ Vulkan is rare. Preferred robust design: load at most one variant per process lifetime and **restart to apply** if process-global ggml state makes `dlclose` unsafe. If runtime switch is kept, it must fully unload the previous variant (SONAME collision on private `libggml*.so`) and not leave stale process-global handlers — but restart-to-apply remains the simpler product default.
+**Backend switch:** a normal settings change while the app runs (Stop → pick CPU/Vulkan → Start). Implementation must fully unload the previous variant before loading the next: both ship private `libggml*.so` with identical SONAMEs, and ggml installs a process-global `std::terminate` handler that must be reset after `dlclose`. Same-device reload may reuse the mapped library.
 
 ### 6.4 Audio
 
@@ -297,7 +297,7 @@ Snapshot of the tree relative to the goals above. **Update this section when shi
 | R6 | Global hotkey reliability on Wayland | Low–Med | `activeChanged` for hold; avoid Meta defaults; tray fallback. |
 | R7 | parakeet C-API thread safety | Medium | Single worker thread per context. |
 | R8 | Sandbox permissions (Flatpak) | Low | Declare portals; offer native package. |
-| R9 | Dual-backend `dlclose` / ggml process-global state | Medium | Prefer restart-to-apply for backend switch; if runtime switch remains, document SONAME + terminate-handler constraints. |
+| R9 | Dual-backend `dlclose` / ggml process-global state | Medium | Full unload before switch (SONAME); reset terminate handler after `dlclose`; same-device reuse; covered by backend unit tests. |
 
 ---
 
@@ -307,7 +307,7 @@ Snapshot of the tree relative to the goals above. **Update this section when shi
 2. **Floating overlay** mechanism (layer-shell vs input-panel) vs relying primarily on preedit.
 3. **Model integrity** scheme (SHA-256 in `models.json` vs signed manifests).
 4. **Packaging priority** (Flatpak vs native).
-5. **Backend switch UX** (restart-to-apply vs runtime `dlclose`).
+5. ~~**Backend switch UX** (restart-to-apply vs runtime `dlclose`).~~ **Resolved:** runtime switch is required (settings); harden `dlclose` path (issue #8).
 6. **Post-processing presets** and multi-hotkey vs single hotkey (design issue #6).
 7. **History UX** after comparable-app research (design issue #7).
 

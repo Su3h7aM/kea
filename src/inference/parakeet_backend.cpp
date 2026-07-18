@@ -140,13 +140,28 @@ QString ParakeetBackend::libraryPath(ParakeetDevice device)
     return {};
 }
 
-void ParakeetBackend::unload()
+bool ParakeetBackend::hasModel() const
+{
+    return m_ctx != nullptr && m_ctx->ctx != nullptr;
+}
+
+std::optional<ParakeetDevice> ParakeetBackend::loadedDevice() const
+{
+    return m_device;
+}
+
+void ParakeetBackend::freeModel()
 {
     streamEnd();
     if (m_sym && m_sym->capi_free && m_ctx && m_ctx->ctx) {
         m_sym->capi_free(m_ctx->ctx);
         m_ctx->ctx = nullptr;
     }
+}
+
+void ParakeetBackend::unload()
+{
+    freeModel();
     if (m_handle) {
         dlclose(m_handle);
         m_handle = nullptr;
@@ -158,6 +173,7 @@ void ParakeetBackend::unload()
         // GGML_ASSERT(prev != ggml_uncaught_exception).
         std::set_terminate(std::abort);
     }
+    m_device.reset();
     // Reset all symbol pointers so a stale fn pointer can't be called after
     // the backing library is unloaded.
     m_sym = std::make_unique<Symbols>();
@@ -165,6 +181,11 @@ void ParakeetBackend::unload()
 
 bool ParakeetBackend::load(ParakeetDevice device)
 {
+    // Same device already mapped: keep the handle (model may still need loadModel).
+    if (m_handle && m_device && *m_device == device) {
+        return true;
+    }
+
     // Tear down any previously loaded variant *before* dlopening the new one.
     // Both CPU and Vulkan variants ship their own libggml.so.0 / libggml-cpu.so.0
     // / libggml-base.so.0 with identical SONAMEs but different binaries. If the
@@ -218,10 +239,11 @@ bool ParakeetBackend::load(ParakeetDevice device)
         || !m_sym->capi_transcribe_path || !m_sym->capi_transcribe_pcm
         || !m_sym->capi_free_string || !m_sym->capi_last_error) {
         setError(QStringLiteral("missing parakeet C-API symbols in %1").arg(path));
-        dlclose(m_handle);
-        m_handle = nullptr;
+        unload();
         return false;
     }
+
+    m_device = device;
     return true;
 }
 
@@ -231,10 +253,7 @@ bool ParakeetBackend::loadModel(const QString &ggufPath)
         setError(QStringLiteral("backend not loaded"));
         return false;
     }
-    if (m_ctx->ctx) {
-        m_sym->capi_free(m_ctx->ctx);
-        m_ctx->ctx = nullptr;
-    }
+    freeModel();
     m_ctx->ctx = m_sym->capi_load(ggufPath.toUtf8().constData());
     if (!m_ctx->ctx) {
         // No live context to query here (capi_load itself failed), and
