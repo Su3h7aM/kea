@@ -13,6 +13,7 @@
 #include <QUrl>
 
 #include "logging.h"
+#include "model_verify.h"
 
 namespace kea {
 
@@ -28,7 +29,10 @@ ModelDownloader::~ModelDownloader()
     cancel();
 }
 
-void ModelDownloader::download(const QString &url, const QString &destPath)
+void ModelDownloader::download(const QString &url,
+                               const QString &destPath,
+                               const QString &sha256,
+                               qint64 sizeBytes)
 {
     if (m_busy) {
         setError(QStringLiteral("download already in progress"));
@@ -43,7 +47,7 @@ void ModelDownloader::download(const QString &url, const QString &destPath)
     const QFileInfo fi(destPath);
     QDir().mkpath(fi.absolutePath());
 
-    // Write to a temp file, rename on success.
+    // Write to a temp file, rename on success after integrity checks.
     const QString tmpPath = destPath + QStringLiteral(".partial");
     delete m_file;
     m_file = new QFile(tmpPath, this);
@@ -56,6 +60,9 @@ void ModelDownloader::download(const QString &url, const QString &destPath)
     }
 
     m_destPath = destPath;
+    m_expect = ModelIntegrityExpect{};
+    m_expect.sizeBytes = sizeBytes;
+    m_expect.sha256 = sha256;
     setBusy(true);
     setProgress(0.0);
     setStatus(QStringLiteral("Downloading…"));
@@ -112,18 +119,60 @@ void ModelDownloader::download(const QString &url, const QString &destPath)
         }
         if (m_file) {
             m_file->write(m_reply->readAll());
+            m_file->flush();
             m_file->close();
-            // Atomic-ish replace.
-            QFile::remove(m_destPath);
-            if (!m_file->rename(m_destPath)) {
+        }
+        cleanupReply();
+
+        // Integrity check on the .partial file before promoting it.
+        const QString tmpPath = m_destPath + QStringLiteral(".partial");
+        setStatus(QStringLiteral("Verifying…"));
+        const ModelIntegrityResult check = verifyModelFile(tmpPath, m_expect);
+        if (!check.ok) {
+            if (m_file) {
+                m_file->remove();
+                delete m_file;
+                m_file = nullptr;
+            } else {
+                QFile::remove(tmpPath);
+            }
+            setBusy(false);
+            setStatus(QStringLiteral("Failed"));
+            setError(check.error);
+            qCWarning(keaLog) << "model download integrity failed:" << check.error;
+            Q_EMIT failed(check.error);
+            return;
+        }
+
+        // Atomic-ish replace.
+        QFile::remove(m_destPath);
+        bool promoted = false;
+        if (m_file) {
+            promoted = m_file->rename(m_destPath);
+            if (!promoted) {
                 // rename across filesystems can fail; fall back to copy.
-                QFile::copy(m_file->fileName(), m_destPath);
+                promoted = QFile::copy(m_file->fileName(), m_destPath);
                 m_file->remove();
             }
             delete m_file;
             m_file = nullptr;
+        } else {
+            promoted = QFile::rename(tmpPath, m_destPath);
+            if (!promoted) {
+                promoted = QFile::copy(tmpPath, m_destPath);
+                QFile::remove(tmpPath);
+            }
         }
-        cleanupReply();
+        if (!promoted) {
+            QFile::remove(tmpPath);
+            setBusy(false);
+            setStatus(QStringLiteral("Failed"));
+            const QString msg = QStringLiteral("cannot install model to %1").arg(m_destPath);
+            setError(msg);
+            Q_EMIT failed(msg);
+            return;
+        }
+
         setBusy(false);
         setProgress(1.0);
         setStatus(QStringLiteral("Downloaded"));

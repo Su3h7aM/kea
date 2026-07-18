@@ -180,7 +180,7 @@ kea/
 ├── io.github.su3h7am.kea.desktop + AppStream metainfo
 ├── data/
 │   ├── protocols/input-method-unstable-v1.xml
-│   └── models.json                 # catalog: ids, URLs, hashes, streaming flag
+│   └── models.json                 # catalog v1: models → nested quants (url, size, optional sha256)
 └── src/
     ├── app/          # UI shell, settings, tray, readiness, model download
     ├── audio/        # capture + resample → 16 kHz mono f32
@@ -238,8 +238,10 @@ Bind KWin’s `zwp_input_method_v1`. On activate, own a `zwp_input_method_contex
 ### 6.6 Settings & models
 
 - Hotkey, backend, activation mode, model path.
-- **Model catalog** (`models.json`): name, description, size, streaming vs offline, download URL, **integrity hash**.
-- Downloader: progress, cancel, verify hash before promoting the file into place.
+- **Model catalog** (`data/models.json`, schema v1): each **model** has nested **quantizations** (`id`, optional `filename`, `url` and/or `path`, `sizeBytes`, optional `sha256`, `recommended`). Flags: streaming vs offline, `defaultQuant`.
+- **User extension:** `~/.config/kea/models.json` (same schema) merges into the bundled list by model id (user quants override/extend). Local files use quant `path` (absolute or `~/…`); no path pasting in the UI.
+- Downloader: progress, cancel, verify GGUF magic (+ `sizeBytes` / optional `sha256`) before promoting the temp file into place.
+- Settings UI: **Active model** select (catalog entries whose file exists) + Get-a-model picker (download or select).
 - First-run onboarding: model present, input method bound, mic usable.
 
 ### 6.7 UI surfaces
@@ -271,7 +273,7 @@ Snapshot of the tree relative to the goals above. **Update this section when shi
 | Streaming + offline sessions | Present |
 | input-method-v1 + TextCommitter | Present |
 | Controller + worker + PTT/toggle | Present |
-| Model download | Partial (no hash verify; catalog not fully UI-driven) |
+| Model download | Present (catalog UI + GGUF/size verify; optional sha256 when cataloged) |
 | Live preedit wired from controller | Missing (API exists) |
 | Floating listening indicator | Missing |
 | Esc-cancel binding | Missing (tray cancel exists) |
@@ -305,7 +307,7 @@ Snapshot of the tree relative to the goals above. **Update this section when shi
 
 1. ~~**Default model.**~~ **Resolved:** default offline TDT 0.6B v3; streaming EOU remains the recommended live-UX catalog entry; both one-click installable.
 2. **Floating overlay** mechanism (layer-shell vs input-panel) vs relying primarily on preedit.
-3. **Model integrity** scheme (SHA-256 in `models.json` vs signed manifests).
+3. ~~**Model integrity** scheme.~~ **Resolved for v1:** GGUF magic + catalog `sizeBytes` always; optional `sha256` when present in catalog (signed manifests deferred).
 4. **Packaging priority** (Flatpak vs native).
 5. ~~**Backend switch UX** (restart-to-apply vs runtime `dlclose`).~~ **Resolved:** runtime switch is required (settings); harden `dlclose` path (issue #8).
 6. **Post-processing presets** and multi-hotkey vs single hotkey (design issue #6).

@@ -192,14 +192,48 @@ Kirigami.ApplicationWindow {
                 Layout.fillWidth: true
                 enabled: _dictation ? _dictation.canConfigure : true
 
-                Controls.TextField {
-                    id: modelField
-                    Kirigami.FormData.label: i18nc("@label", "Model path")
-                    text: _settings ? _settings.modelPath : ""
+                // Active model is always chosen from the catalog (bundled +
+                // ~/.config/kea/models.json). Paths live in models.json via
+                // quant.path — no free-text path field.
+                Controls.ComboBox {
+                    id: activeModelBox
+                    Kirigami.FormData.label: i18nc("@label", "Active model")
                     Layout.fillWidth: true
-                    onEditingFinished: {
-                        if (_settings)
-                            _settings.modelPath = text
+                    model: _catalog ? _catalog.availableSelections : []
+                    textRole: "display"
+                    enabled: model && model.length > 0
+                    Component.onCompleted: syncFromSettings()
+                    onActivated: (index) => {
+                        if (!_settings || index < 0 || index >= model.length)
+                            return
+                        const sel = model[index]
+                        if (sel && sel.path)
+                            _settings.modelPath = sel.path
+                    }
+
+                    function syncFromSettings() {
+                        if (!_catalog || !_settings)
+                            return
+                        const idx = _catalog.indexOfAvailablePath(_settings.modelPath)
+                        if (idx >= 0)
+                            currentIndex = idx
+                        else if (model && model.length > 0 && currentIndex < 0)
+                            currentIndex = 0
+                    }
+                }
+
+                Controls.Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WrapAnywhere
+                    opacity: 0.7
+                    text: {
+                        if (!_settings)
+                            return ""
+                        if (activeModelBox.model && activeModelBox.model.length === 0)
+                            return i18nc("@info",
+                                "No models available yet. Download one below, or add local paths in %1.",
+                                _catalog ? _catalog.userCatalogPath : "~/.config/kea/models.json")
+                        return _settings.modelPath
                     }
                 }
 
@@ -225,21 +259,182 @@ Kirigami.ApplicationWindow {
                 }
 
                 Controls.Button {
-                    text: _downloader && _downloader.busy
-                          ? i18nc("@action:button", "Cancel download")
-                          : i18nc("@action:button", "Download TDT 0.6B v3 (HF)")
-                    enabled: _downloader !== null
-                    onClicked: {
-                        if (!_downloader || !_settings)
+                    text: i18nc("@action:button", "Mark setup complete")
+                    visible: _settings && !_settings.onboardingDone
+                    enabled: _readiness && _readiness.modelReady
+                    onClicked: _settings.onboardingDone = true
+                }
+            }
+
+            // --- Model catalog / download ---
+            Kirigami.Heading {
+                text: i18nc("@title:group", "Get a model")
+                level: 2
+            }
+
+            Kirigami.FormLayout {
+                Layout.fillWidth: true
+                enabled: (_dictation ? _dictation.canConfigure : true)
+                         && !(_downloader && _downloader.busy)
+
+                Controls.ComboBox {
+                    id: catalogModelBox
+                    Kirigami.FormData.label: i18nc("@label", "Model")
+                    Layout.fillWidth: true
+                    model: _catalog ? _catalog.models : []
+                    textRole: "name"
+                    Component.onCompleted: selectDefaultModel()
+                    onCountChanged: {
+                        if (currentIndex < 0)
+                            selectDefaultModel()
+                    }
+                    onActivated: (index) => {
+                        refreshQuants(index)
+                    }
+
+                    function selectDefaultModel() {
+                        if (!_catalog || !_catalog.models)
                             return
-                        if (_downloader.busy) {
-                            _downloader.cancel()
+                        const models = _catalog.models
+                        const want = _catalog.defaultModelId()
+                        for (let i = 0; i < models.length; ++i) {
+                            if (models[i].id === want) {
+                                currentIndex = i
+                                refreshQuants(i)
+                                return
+                            }
+                        }
+                        if (models.length > 0) {
+                            currentIndex = 0
+                            refreshQuants(0)
+                        }
+                    }
+
+                    function refreshQuants(index) {
+                        if (!_catalog || index < 0 || index >= _catalog.models.length) {
+                            quantBox.model = []
                             return
                         }
-                        const dest = _settings.modelsDir() + "/" + _defaultModelFilename
-                        _downloader.download(_defaultModelUrl, dest)
+                        const mid = _catalog.models[index].id
+                        quantBox.model = _catalog.quantsFor(mid)
+                        const pref = _catalog.preferredQuant(mid)
+                        let qi = 0
+                        if (pref && pref.id) {
+                            for (let i = 0; i < quantBox.model.length; ++i) {
+                                if (quantBox.model[i].id === pref.id) {
+                                    qi = i
+                                    break
+                                }
+                            }
+                        }
+                        quantBox.currentIndex = qi
+                    }
+
+                    function selectedModel() {
+                        if (!_catalog || currentIndex < 0 || currentIndex >= _catalog.models.length)
+                            return null
+                        return _catalog.models[currentIndex]
                     }
                 }
+
+                Controls.ComboBox {
+                    id: quantBox
+                    Kirigami.FormData.label: i18nc("@label", "Quantization")
+                    Layout.fillWidth: true
+                    model: []
+                    textRole: "display"
+
+                    function selectedQuant() {
+                        if (currentIndex < 0 || currentIndex >= model.length)
+                            return null
+                        return model[currentIndex]
+                    }
+                }
+
+                Controls.Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    opacity: 0.8
+                    text: {
+                        const m = catalogModelBox.selectedModel()
+                        if (!m)
+                            return ""
+                        let t = m.description || ""
+                        if (m.streaming)
+                            t = i18nc("@info", "Streaming — live text while speaking.") + " " + t
+                        else
+                            t = i18nc("@info", "Offline — transcribes on hotkey release.") + " " + t
+                        return t
+                    }
+                }
+
+                Controls.Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    opacity: 0.7
+                    text: {
+                        const m = catalogModelBox.selectedModel()
+                        const q = quantBox.selectedQuant()
+                        if (!m || !q || !_catalog)
+                            return ""
+                        if (_catalog.isAvailable(m.id, q.id))
+                            return i18nc("@info", "✓ Available at %1",
+                                         _catalog.resolvedPath(m.id, q.id))
+                        if (q.path)
+                            return i18nc("@info", "Configured path missing: %1", q.path)
+                        return i18nc("@info", "Not downloaded yet")
+                    }
+                }
+
+                Controls.Button {
+                    text: {
+                        const m = catalogModelBox.selectedModel()
+                        const q = quantBox.selectedQuant()
+                        if (m && q && _catalog && _catalog.isAvailable(m.id, q.id))
+                            return i18nc("@action:button", "Use this model")
+                        if (q && !q.downloadable)
+                            return i18nc("@action:button", "Path missing")
+                        return i18nc("@action:button", "Download")
+                    }
+                    enabled: {
+                        if (!_downloader || !_catalog)
+                            return false
+                        const m = catalogModelBox.selectedModel()
+                        const q = quantBox.selectedQuant()
+                        if (!m || !q)
+                            return false
+                        if (_catalog.isAvailable(m.id, q.id))
+                            return true
+                        return !!q.downloadable
+                    }
+                    onClicked: {
+                        if (!_downloader || !_settings || !_catalog)
+                            return
+                        const m = catalogModelBox.selectedModel()
+                        const q = quantBox.selectedQuant()
+                        if (!m || !q)
+                            return
+                        if (_catalog.isAvailable(m.id, q.id)) {
+                            _settings.modelPath = _catalog.resolvedPath(m.id, q.id)
+                            activeModelBox.syncFromSettings()
+                            return
+                        }
+                        if (!q.downloadable)
+                            return
+                        const dest = _catalog.downloadDest(m.id, q.id)
+                        const size = q.sizeBytes ? Number(q.sizeBytes) : 0
+                        const sha = q.sha256 ? String(q.sha256) : ""
+                        _downloader.download(q.url, dest, sha, size)
+                    }
+                }
+            }
+
+            // Download controls stay enabled while busy (outside disabled form).
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+                visible: _downloader && (_downloader.busy
+                         || (_downloader.statusText && _downloader.statusText !== "Idle"))
 
                 Controls.ProgressBar {
                     visible: _downloader && _downloader.busy
@@ -250,17 +445,50 @@ Kirigami.ApplicationWindow {
                 }
 
                 Controls.Label {
-                    visible: _downloader && _downloader.statusText.length > 0
-                    text: _downloader ? _downloader.statusText : ""
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
                     opacity: 0.8
+                    text: _downloader ? _downloader.statusText : ""
+                }
+
+                Controls.Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    visible: _downloader && _downloader.lastError.length > 0
+                    color: Kirigami.Theme.negativeTextColor
+                    text: _downloader ? _downloader.lastError : ""
                 }
 
                 Controls.Button {
-                    text: i18nc("@action:button", "Mark setup complete")
-                    visible: _settings && !_settings.onboardingDone
-                    enabled: _readiness && _readiness.modelReady
-                    onClicked: _settings.onboardingDone = true
+                    visible: _downloader && _downloader.busy
+                    text: i18nc("@action:button", "Cancel download")
+                    onClicked: {
+                        if (_downloader)
+                            _downloader.cancel()
+                    }
                 }
+            }
+
+            Controls.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.65
+                text: {
+                    const path = _catalog ? _catalog.userCatalogPath : "~/.config/kea/models.json"
+                    return i18nc("@info",
+                        "Point Kea at models you already have by editing %1. " +
+                        "Use quant.path for an absolute (or ~/…) file path; " +
+                        "those entries show up in Active model when the file exists. " +
+                        "You can also add downloadable entries (url) that merge with the bundled catalog.",
+                        path)
+                }
+            }
+
+            Kirigami.InlineMessage {
+                Layout.fillWidth: true
+                visible: _catalog && _catalog.lastError.length > 0
+                type: Kirigami.MessageType.Warning
+                text: _catalog ? _catalog.lastError : ""
             }
 
             // --- Hotkey (always editable — independent of model state) ---
@@ -303,21 +531,40 @@ Kirigami.ApplicationWindow {
                     "(default Ctrl+Shift+D) while a text field is focused to dictate. " +
                     "Release to commit.\n\n" +
                     "Click Stop to unload the model and change the backend or model file.\n\n" +
-                    "Set the model path above, or export KEA_MODEL=/path/to/model.gguf. " +
-                    "Offline models (e.g. TDT) buffer audio until release; streaming EOU " +
-                    "models insert text live.\n\n" +
+                    "Pick an Active model from the catalog, download one below, or set " +
+                    "KEA_MODEL=/path/to/model.gguf. Offline models buffer until release; " +
+                    "streaming models insert text live.\n\n" +
                     "Only one Wayland input method can own the seat — disable fcitx5/IBus if binding fails.")
             }
         }
     }
 
     Connections {
+        target: _settings
+        function onModelPathChanged() {
+            activeModelBox.syncFromSettings()
+        }
+    }
+
+    Connections {
+        target: _catalog
+        function onAvailabilityChanged() {
+            activeModelBox.syncFromSettings()
+            if (catalogModelBox.currentIndex >= 0)
+                catalogModelBox.refreshQuants(catalogModelBox.currentIndex)
+        }
+    }
+
+    Connections {
         target: _downloader
         function onFinished(localPath) {
-            if (_settings) {
+            if (_settings)
                 _settings.modelPath = localPath
-                modelField.text = localPath
-            }
+            if (_catalog)
+                _catalog.refreshAvailability()
+            if (catalogModelBox.currentIndex >= 0)
+                catalogModelBox.refreshQuants(catalogModelBox.currentIndex)
+            activeModelBox.syncFromSettings()
         }
     }
 }

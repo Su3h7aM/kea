@@ -4,13 +4,16 @@
  *
  * ModelDownloader — fetch a GGUF from a URL into the models directory.
  *
- * Progress is exposed for the QML progress bar. On success, emits finished with
- * the local path so AppSettings.modelPath can be updated.
+ * Progress is exposed for the QML progress bar. On success, verifies the
+ * payload (GGUF magic + optional size/sha256) before promoting the temp file,
+ * then emits finished with the local path so AppSettings.modelPath can be updated.
  */
 #pragma once
 
 #include <QObject>
 #include <QString>
+
+#include "model_verify.h"
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -37,7 +40,11 @@ public:
 
 public Q_SLOTS:
     /// Download `url` into `destPath` (absolute). Overwrites if present.
-    void download(const QString &url, const QString &destPath);
+    /// Optional integrity: exact sizeBytes (0 = skip) and/or sha256 hex (empty = skip).
+    void download(const QString &url,
+                  const QString &destPath,
+                  const QString &sha256 = QString(),
+                  qint64 sizeBytes = 0);
     void cancel();
 
 Q_SIGNALS:
@@ -66,6 +73,7 @@ private:
     QString m_statusText;
     QString m_lastError;
     QString m_destPath;
+    ModelIntegrityExpect m_expect;
 };
 
 } // namespace kea
