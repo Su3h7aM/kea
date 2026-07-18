@@ -28,11 +28,16 @@ void ParakeetWorker::loadBackend(int device, const QString &modelPath)
     m_offlineMode = false;
     m_modelOk = false;
 
-    const ParakeetDevice dev =
+    const ParakeetDevice requested =
         (device == 1) ? ParakeetDevice::Vulkan : ParakeetDevice::Cpu;
 
-    if (!m_backend.load(dev)) {
-        if (dev == ParakeetDevice::Vulkan) {
+    // load() reuses the same device if already mapped, or fully unloads then
+    // opens a different variant — so Stop → change backend → Start works
+    // without restarting the app.
+    if (!m_backend.load(requested)) {
+        if (requested == ParakeetDevice::Vulkan) {
+            qCWarning(keaLog) << "Vulkan backend unavailable, falling back to CPU:"
+                              << m_backend.lastError();
             if (!m_backend.load(ParakeetDevice::Cpu)) {
                 Q_EMIT modelReady(false, m_backend.lastError());
                 return;
@@ -47,7 +52,10 @@ void ParakeetWorker::loadBackend(int device, const QString &modelPath)
         return;
     }
     m_modelOk = true;
-    qCInfo(keaLog) << "model loaded:" << modelPath;
+    const auto loaded = m_backend.loadedDevice();
+    qCInfo(keaLog) << "model loaded:" << modelPath
+                   << "backend="
+                   << (loaded && *loaded == ParakeetDevice::Vulkan ? "Vulkan" : "CPU");
     Q_EMIT modelReady(true, QString());
 }
 

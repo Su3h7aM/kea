@@ -142,6 +142,8 @@ The smoke test loads a backend and transcribes a WAV:
   Never call the Wayland context directly from the controller.
 - **Two `.so` variants share an identical C-API.** CPU and Vulkan libs are selected at
   runtime via `dlopen`. CPU must remain a working fallback when Vulkan is unavailable.
+  Backend is a normal setting: switch in-process (full unload before the other
+  variant) — never require an app restart.
 
 ## Parakeet streaming contract (the core of the pipeline)
 
