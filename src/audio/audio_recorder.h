@@ -31,10 +31,15 @@ public:
     explicit AudioRecorder(QObject *parent = nullptr);
     ~AudioRecorder() override;
 
-    bool start();
-    void stop();
-    bool isActive() const { return m_source != nullptr; }
+    /// Open the default input device. Virtual so unit tests can inject a
+    /// FakeAudioRecorder that always succeeds without a real mic.
+    virtual bool start();
+    virtual void stop();
+    virtual bool isActive() const { return m_source != nullptr; }
     QString lastError() const { return m_lastError; }
+
+protected:
+    void setLastError(const QString &e) { m_lastError = e; }
 
 Q_SIGNALS:
     /// 16 kHz mono float samples (Qt6: QList is the container used across threads).

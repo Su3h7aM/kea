@@ -14,14 +14,14 @@
 #pragma once
 
 #include <QList>
-#include <QObject>
 #include <QString>
 
+#include "controller/inference_worker.h"
 #include "inference/parakeet_backend.h"
 
 namespace kea {
 
-class ParakeetWorker : public QObject
+class ParakeetWorker : public InferenceWorker
 {
     Q_OBJECT
 
@@ -30,22 +30,13 @@ public:
     ~ParakeetWorker() override;
 
 public Q_SLOTS:
-    void loadBackend(int device /*0=cpu,1=vulkan*/, const QString &modelPath);
-    void unloadBackend();
+    void loadBackend(int device /*0=cpu,1=vulkan*/, const QString &modelPath) override;
+    void unloadBackend() override;
     /// Prefer streaming; if the model is offline-only, buffer PCM instead.
-    void beginSession();
-    void feedPcm(const QList<float> &samples);
-    void finalizeSession(); // stream finalize OR offline transcribe_pcm
-    void cancelSession();
-
-Q_SIGNALS:
-    void modelReady(bool ok, const QString &error);
-    void modelUnloaded();
-    /// ok, error, offlineMode (true = buffer+batch; false = live stream)
-    void sessionStarted(bool ok, const QString &error, bool offlineMode);
-    void textFinalized(const QString &text, int eouMask);
-    void sessionFinished(const QString &text, const QString &error);
-    void sessionCancelled();
+    void beginSession() override;
+    void feedPcm(const QList<float> &samples) override;
+    void finalizeSession() override; // stream finalize OR offline transcribe_pcm
+    void cancelSession() override;
 
 private:
     ParakeetBackend m_backend;

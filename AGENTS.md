@@ -38,7 +38,7 @@ software actually hosted under KDE. Keep this in mind when adding new identifier
 ```
 src/app/          # tray, settings, readiness, catalog, downloader, Main.qml
 src/audio/        # resampler, wav loader, QAudioSource recorder
-src/controller/   # DictationController + ParakeetWorker (QThread)
+src/controller/   # DictationController + InferenceWorker + ParakeetWorker
 src/hotkey/       # KGlobalAccel push-to-talk
 src/inference/    # dlopen parakeet backend (offline + streaming)
 src/insert/       # input-method-v1 + TextCommitter

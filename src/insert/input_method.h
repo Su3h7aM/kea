@@ -72,7 +72,9 @@ public:
                                 QObject *parent = nullptr);
     ~InputMethodContext() override;
 
-    // IInputContext
+    // IInputContext — isValid requires a live object *and* at least one
+    // commit_state (serial known; RFC R2). Serial alone defaults to 0 before
+    // the first commit_state and must not be treated as ready.
     bool isValid() const override;
     uint32_t serial() const override { return m_serial; }
     void commitString(const QString &text) override;

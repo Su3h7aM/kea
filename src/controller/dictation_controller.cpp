@@ -10,6 +10,7 @@
 
 #include "app/app_settings.h"
 #include "audio/audio_recorder.h"
+#include "controller/inference_worker.h"
 #include "controller/parakeet_worker.h"
 #include "hotkey/global_hotkey.h"
 #include "insert/insertion_router.h"
@@ -17,37 +18,11 @@
 
 namespace kea {
 
-DictationController::DictationController(AppSettings *settings, QObject *parent)
-    : QObject(parent)
-    , m_settings(settings)
-    , m_recorder(std::make_unique<AudioRecorder>(this))
-    , m_worker(new ParakeetWorker)
+void DictationController::initCommon(AppSettings *settings)
 {
     qRegisterMetaType<QList<float>>("QList<float>");
-
+    m_settings = settings;
     m_statusText = QStringLiteral("Idle");
-
-    m_worker->moveToThread(&m_workerThread);
-    connect(&m_workerThread, &QThread::finished, m_worker, &QObject::deleteLater);
-    m_workerThread.start();
-
-    connect(m_recorder.get(), &AudioRecorder::pcmBlock,
-            this, &DictationController::onPcmBlock);
-    connect(m_recorder.get(), &AudioRecorder::levelChanged,
-            this, &DictationController::onLevel);
-
-    connect(m_worker, &ParakeetWorker::modelReady,
-            this, &DictationController::onModelReady);
-    connect(m_worker, &ParakeetWorker::modelUnloaded,
-            this, &DictationController::onModelUnloaded);
-    connect(m_worker, &ParakeetWorker::sessionStarted,
-            this, &DictationController::onSessionStarted);
-    connect(m_worker, &ParakeetWorker::textFinalized,
-            this, &DictationController::onTextFinalized);
-    connect(m_worker, &ParakeetWorker::sessionFinished,
-            this, &DictationController::onSessionFinished);
-    connect(m_worker, &ParakeetWorker::sessionCancelled,
-            this, &DictationController::onSessionCancelled);
 
     if (m_settings) {
         connect(m_settings, &AppSettings::modelPathChanged, this, [this]() {
@@ -61,18 +36,81 @@ DictationController::DictationController(AppSettings *settings, QObject *parent)
         connect(m_settings, &AppSettings::activationModeChanged, this, [this]() {
             setActivationMode(m_settings->activationMode());
         });
-        // Read the initial activation mode.
         m_activationMode = (m_settings->activationMode() == 1)
-                            ? ActivationMode::Toggle
-                            : ActivationMode::PushToTalk;
+                               ? ActivationMode::Toggle
+                               : ActivationMode::PushToTalk;
     }
+}
+
+void DictationController::wireWorker()
+{
+    connect(m_worker, &InferenceWorker::modelReady,
+            this, &DictationController::onModelReady);
+    connect(m_worker, &InferenceWorker::modelUnloaded,
+            this, &DictationController::onModelUnloaded);
+    connect(m_worker, &InferenceWorker::sessionStarted,
+            this, &DictationController::onSessionStarted);
+    connect(m_worker, &InferenceWorker::textFinalized,
+            this, &DictationController::onTextFinalized);
+    connect(m_worker, &InferenceWorker::sessionFinished,
+            this, &DictationController::onSessionFinished);
+    connect(m_worker, &InferenceWorker::sessionCancelled,
+            this, &DictationController::onSessionCancelled);
+}
+
+void DictationController::wireRecorder()
+{
+    connect(m_recorder, &AudioRecorder::pcmBlock,
+            this, &DictationController::onPcmBlock);
+    connect(m_recorder, &AudioRecorder::levelChanged,
+            this, &DictationController::onLevel);
+}
+
+DictationController::DictationController(AppSettings *settings, QObject *parent)
+    : QObject(parent)
+    , m_ownRecorder(true)
+    , m_ownWorker(true)
+{
+    initCommon(settings);
+    m_recorder = new AudioRecorder(this);
+    m_worker = new ParakeetWorker;
+    m_worker->moveToThread(&m_workerThread);
+    connect(&m_workerThread, &QThread::finished, m_worker, &QObject::deleteLater);
+    m_workerThread.start();
+    wireWorker();
+    wireRecorder();
+}
+
+DictationController::DictationController(AppSettings *settings,
+                                         InferenceWorker *worker,
+                                         AudioRecorder *recorder,
+                                         QObject *parent)
+    : QObject(parent)
+    , m_ownRecorder(false)
+    , m_ownWorker(false)
+{
+    initCommon(settings);
+    m_recorder = recorder;
+    m_worker = worker;
+    // Same-thread: no background worker thread. Tests drive processEvents().
+    wireWorker();
+    wireRecorder();
 }
 
 DictationController::~DictationController()
 {
     cancel();
-    m_workerThread.quit();
-    m_workerThread.wait(3000);
+    if (m_ownWorker) {
+        m_workerThread.quit();
+        m_workerThread.wait(3000);
+        // m_worker is deleteLater'd when the thread finishes.
+        m_worker = nullptr;
+    }
+    // External worker/recorder are not owned.
+    if (m_ownRecorder) {
+        // Child of this (parent=this in production ctor).
+        m_recorder = nullptr;
+    }
 }
 
 void DictationController::setInsertionRouter(InsertionRouter *router)
@@ -478,7 +516,9 @@ void DictationController::cancel()
     if (m_inserter) {
         m_inserter->clearPreedit();
     }
-    QMetaObject::invokeMethod(m_worker, "cancelSession", Qt::QueuedConnection);
+    if (m_worker) {
+        QMetaObject::invokeMethod(m_worker, "cancelSession", Qt::QueuedConnection);
+    }
     setState(State::Idle);
     setStatus(QStringLiteral("Cancelled"));
 }

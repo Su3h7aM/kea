@@ -89,7 +89,10 @@ InputMethodContext::~InputMethodContext()
 
 bool InputMethodContext::isValid() const
 {
-    return m_valid && object() != nullptr;
+    // RFC R2: do not treat the context as ready until the compositor has sent
+    // at least one commit_state (serial known). Serial defaults to 0 on the
+    // wire before that, but committing with an unknown serial is unsafe.
+    return m_valid && object() != nullptr && m_sawCommitState;
 }
 
 void InputMethodContext::commitString(const QString &text)
