@@ -1,102 +1,110 @@
-# RFC 0001: Kea — Offline Voice Dictation for KDE Plasma
+# RFC 0001: Kea — On-device Voice Dictation for KDE Plasma
 
 | Field | Value |
 | --- | --- |
 | **Title** | Kea: On-device voice dictation for Linux / KDE Plasma (Wayland) |
-| **Status** | Accepted (reconciled with implementation) |
+| **Status** | Design target (product architecture) |
 | **Date** | 2026-07-17 |
-| **Reconciled** | 2026-07-18 |
-| **Stack** | C++17 · Qt6 / Kirigami · parakeet.cpp (ggml) · PipeWire · Wayland `input-method-unstable-v1` |
+| **Stack** | C++17 · Qt6 / Kirigami · parakeet.cpp (ggml) · PipeWire · Wayland input-method (KWin) |
 | **Target platform** | KDE Plasma 6 on Wayland, PipeWire audio stack |
 | **Inspiration** | Wispr Flow — but local-first, open, and native to the Linux desktop |
+
+### How to read this RFC
+
+This document is the **product and architecture goal** — what Kea should be — not a changelog of the tree on any given day.
+
+- **Goals, decisions, and non-goals** in §§1–7 and §9–11 define the intended design. Prefer the best solution that actually works on the target platform (Plasma 6 / KWin / PipeWire).
+- **§8 Implementation status** is the only place that tracks “what ships today vs. still open.” Gaps in §8 are work items, not reasons to rewrite the design downward to match unfinished code.
+- When implementation learns a hard platform fact (e.g. which input-method protocol KWin exposes), update the **goal** so it stays correct — do not keep a prettier protocol name that cannot work on Plasma.
 
 ---
 
 ## 1. Abstract
 
-**Kea** is a system-wide voice dictation application for KDE Plasma on Wayland. Place your cursor in any text field, hold a global push-to-talk hotkey, speak, and transcribed text is committed into the focused field — entirely on-device, with no cloud dependency and no audio leaving the process.
+**Kea** is a system-wide voice dictation application for KDE Plasma on Wayland. Place your cursor in any text field, activate a global push-to-talk (or toggle) hotkey, speak, and transcribed text lands in the focused field — entirely on-device, with no cloud dependency and no audio leaving the process.
 
-Speech recognition is powered by **parakeet.cpp**, the C++/ggml inference port of NVIDIA's Parakeet ASR models. Kea supports **both streaming and offline** models: streaming models feed PCM live and emit finalized increments as you speak; offline models (the default) buffer while the session is active and transcribe when it ends. Mode is auto-detected from the loaded model.
+Speech recognition is powered by **parakeet.cpp**, the C++/ggml port of NVIDIA Parakeet. The product supports **streaming** models (live finalized text while speaking, with end-of-utterance detection) and **offline** models (buffer during the session, transcribe when it ends). Streaming is the primary “words appear as you speak” experience; offline models remain first-class for multilingual accuracy and larger TDT checkpoints. Mode is selected by the loaded model (auto-detect), not a separate engine switch.
 
-The UI is a **Kirigami** + QML application with a system-tray presence and a settings window. Audio is captured via **Qt6 Multimedia** (`QAudioSource`) on PipeWire hosts. Transcribed text is injected using the Wayland **`input-method-unstable-v1`** protocol — what KWin implements (not v2).
+The UI is **Kirigami** + QML with a system-tray presence and settings. Audio is captured via **Qt6 Multimedia** on PipeWire hosts. Text is injected by registering as the seat’s **Wayland input method**, using the protocol **KWin actually implements** (`input_method_unstable_v1` — see §5.2).
 
-v1 ships pure speech-to-text with two inference backends — **CPU** and **Vulkan** GPU — user-selectable. An LLM-based cleanup/formatting layer (the Wispr Flow "polish" feature) is deferred, but the architecture leaves a clean seam for it.
+Product ships pure speech-to-text with **CPU** and **Vulkan** inference backends. An LLM cleanup / translate / rewrite layer (Wispr-style polish) is a later phase but must not require redesigning the commit seam (see open design issues).
 
 ---
 
 ## 2. Background & Motivation
 
-Wispr Flow proved demand for "anywhere, press-and-speak" dictation with live cleanup. It is macOS/Windows/iOS/Android only and cloud-based. Linux users lack a first-class equivalent: existing options are non-global, non-streaming, accuracy-limited, or require the network.
+Wispr Flow proved demand for “anywhere, press-and-speak” dictation with live cleanup. It is closed-source, cloud-oriented, and not on Linux. Existing Linux options are non-global, non-streaming, accuracy-limited, or network-bound.
 
-parakeet.cpp closes the engine gap: NVIDIA Parakeet accuracy faster than real-time on CPU (and faster on GPU), byte-identical to NeMo, with a flat C-API and optional streaming + end-of-utterance (EOU) models. Combined with Kirigami, a private always-on dictation tool is viable on the Linux desktop.
+parakeet.cpp closes the engine gap: NeMo-parity accuracy, faster than real-time on CPU, faster on GPU, flat C-API, and optional streaming + EOU models. Kirigami gives a native Plasma UI.
 
-The hard problem is not recognition — it is **injecting text into arbitrary applications on Wayland**, where X11 tricks (`xdotool`, `XSendEvent`) do not work. Kea solves this by registering as a Wayland input method.
+The hard problem is not recognition — it is **injecting text into arbitrary applications on Wayland**, where X11 tricks (`xdotool`, `XSendEvent`) do not work. Kea solves this by being a real input method under KWin.
 
 ---
 
 ## 3. Goals & Non-Goals
 
-### Goals (v1)
+### Goals (product)
 
-- **G1.** Global push-to-talk (and optional toggle) hotkey that starts/stops dictation from any focused text field.
-- **G2.** On-device transcription with low end-to-end latency. Streaming models show words as they finalize; offline models commit when the session ends. Both are first-class.
-- **G3.** On-device inference only — no network calls for recognition, no audio upload, no account. (Model download is optional first-run convenience.)
-- **G4.** Two selectable backends: **CPU** and **Vulkan**, chosen in settings.
-- **G5.** System-tray icon + a Kirigami settings window (hotkey, model path, backend, activation mode).
-- **G6.** Runs on KDE Plasma 6 / Wayland with a PipeWire audio host.
-- **G7.** Clean seam for a future LLM post-processing layer without redesign.
+- **G1.** Global activation (push-to-talk and toggle) from any focused text field.
+- **G2.** Low-latency on-device transcription. **Primary UX:** streaming models finalize text live while the user speaks. Offline models remain fully supported (buffer during the session, commit when it ends) for quality and multilingual workloads.
+- **G3.** On-device inference only for recognition — no audio upload, no account. Optional model download is first-run convenience only.
+- **G4.** Selectable backends: **CPU** and **Vulkan**.
+- **G5.** System tray + Kirigami settings (hotkey, model, backend, activation mode); KDE-native control patterns where they exist (e.g. key-sequence capture).
+- **G6.** Target: KDE Plasma 6 / Wayland / PipeWire.
+- **G7.** Clean seam for future post-processing (cleanup, rewrite, translate) without redesigning insertion.
+- **G8.** Live feedback while dictating: inline **preedit** for not-yet-committed text and/or a floating listening indicator so the user is never “flying blind.”
+- **G9.** Reliable insertion into the focused client via the compositor’s input-method path; clear UX when no compatible text field is active (never silent drop without feedback).
 
-### Non-Goals (v1)
+### Non-goals (initial product)
 
-- ❌ LLM cleanup / formatting / command mode / rewrite transforms.
-- ❌ Transcript history, scratchpad, personal dictionary, snippets.
-- ❌ X11 support, PulseAudio-only hosts (no PipeWire), or non-Linux platforms.
-- ❌ Multilingual auto-switching as a first-class UI (the default offline TDT model is multilingual; language selection UI is later).
-- ❌ Coexistence with an already-running IME (fcitx5/IBus) — see **§9 Risks**.
+- ❌ LLM cleanup / command mode / rewrite as day-one requirements (designed later; seam reserved).
+- ❌ Full transcript history / scratchpad / personal dictionary / snippets as day-one (designed later).
+- ❌ X11, PulseAudio-only hosts, non-Linux.
+- ❌ Coexistence with a second seat IME (fcitx5/IBus) in the first product cut — see §9 R1.
+- ❌ Multilingual auto-switch UI as a separate product surface (engine/models may already be multilingual).
 
 ---
 
 ## 4. High-Level Architecture
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────────┐
 │                            Kea process                                │
 │                                                                       │
 │   ┌─────────────┐    PCM 16k mono f32    ┌────────────────────────┐  │
 │   │  Audio In   │ ─────────────────────▶ │   parakeet.cpp (ggml)  │  │
-│   │ QAudioSource│   resample 48k→16k     │   streaming *or*       │  │
-│   │ (PipeWire)  │                         │   offline (TDT/etc.)   │  │
+│   │ QAudioSource│   resample 48k→16k     │   streaming and/or     │  │
+│   │ (PipeWire)  │                         │   offline models       │  │
 │   │ int16→f32   │                         │   backend: CPU|Vulkan  │  │
 │   └─────────────┘                         └───────────┬────────────┘  │
-│          ▲                                             │ finalized    │
-│          │ start/stop                                   │ text         │
-│          │                                              ▼              │
+│          ▲                                             │ text + EOU    │
+│          │ start/stop                                   ▼              │
 │   ┌──────┴───────┐   QML/signals   ┌──────────────────────────────┐  │
 │   │  Hotkey      │◀───────────────▶│   Dictation Controller        │  │
-│   │ KGlobalAccel │                 │   (+ ParakeetWorker thread)   │  │
+│   │ KGlobalAccel │                 │   (+ worker thread)           │  │
 │   └──────────────┘                 └───────────────┬──────────────┘  │
-│                                                     │ commit_string   │
+│                                                     │ commit/preedit  │
 │   ┌──────────────┐                                  ▼                 │
 │   │ System Tray  │                      ┌─────────────────────────┐   │
-│   │ KStatusNotif │                      │ Text Insertion (input   │   │
-│   │ ierItem      │                      │ method-v1 client)       │   │
+│   │ KStatusNotif │                      │ Text insertion          │   │
+│   │ ierItem      │                      │ (input-method client)   │   │
 │   └──────────────┘                      └────────────┬────────────┘   │
 └──────────────────────────────────────────────────────┼────────────────┘
-                                    wl_seat / zwp_input_method_v1
-                                                        │
+                              seat input method (KWin)  │
                                                         ▼
                                              ┌────────────────────┐
-                                             │  KWin (compositor)  │
-                                             │  → focused surface  │
+                                             │  KWin → focused    │
+                                             │  text-input client │
                                              └────────────────────┘
 ```
 
-**Data flow:**
-1. User loads a model (Start in the UI) → worker `dlopen`s the selected backend and `parakeet_capi_load`s the GGUF.
-2. Activation start (PTT press or toggle on) → controller opens capture + `beginSession` on the worker.
-3. Session mode: if `stream_begin` succeeds → **streaming** (feed PCM live, commit increments); else → **offline** (buffer PCM, transcribe on finalize).
-4. Activation stop (PTT release or toggle off) → stop capture → finalize/transcribe tail → commit via `TextCommitter` → free session.
-5. Stop in the UI unloads the model so backend/path settings can change.
+**Intended data flow:**
+
+1. Load model into the worker (backend `dlopen` + GGUF load).
+2. Activation start → open capture + ASR session.
+3. If the model supports streaming → feed PCM live, emit finalized increments (and show unfinished text as preedit). Else → buffer PCM for offline decode when the session ends.
+4. Activation stop → finalize / offline transcribe → commit tail → free session.
+5. Cancel discards uncommitted state without leaving partial garbage in the field.
 
 ---
 
@@ -104,28 +112,28 @@ The hard problem is not recognition — it is **injecting text into arbitrary ap
 
 | Concern | Choice | Rationale |
 | --- | --- | --- |
-| UI toolkit | **Kirigami + QML** on Qt6 | Native Plasma look/feel, KDE-recommended. |
-| ASR engine | **parakeet.cpp** (streaming + offline) | Flat C-API; streaming with EOU when the model supports it; offline path for TDT/CTC/RNNT models. |
-| Inference backends | **CPU** and **Vulkan** (two `libparakeet` variants, runtime `dlopen`) | CPU covers everyone; Vulkan for discrete GPU. |
-| Audio capture | **Qt6 Multimedia `QAudioSource`** on PipeWire hosts | Consistent API; no raw PipeWire C in v1. CMake requires Qt ≥ 6.6 (see §5.3). |
-| Global hotkey | **KGlobalAccel** via `globalShortcutActiveChanged` | Hold-to-talk needs press *and* release; default **Ctrl+Shift+D** (avoids Meta, which some Plasma setups intercept). |
-| Text insertion | **Wayland `input-method-unstable-v1`** | What KWin implements (`InputMethodV1Interface`). Not v2. |
-| Tray presence | **KStatusNotifierItem** | Plasma-native; works on Wayland. |
-| Settings storage | **`QSettings`** (`kea`/`kea` → `~/.config/kea/kea.conf`) | Simple; no KConfigXT/KCM in v1. |
-| Process model | **Single foreground process** | Audio ↔ ASR ↔ insertion stay in-process for latency. |
-| parakeet source | **Build-time `ExternalProject_Add`** (`cmake/parakeet.cmake`) | Not a git submodule; clones/builds into the build tree under `build/parakeet/`. |
+| UI toolkit | **Kirigami + QML** on Qt6 | Native Plasma look/feel. |
+| ASR engine | **parakeet.cpp** | Best fit for on-device Linux: flat C-API, streaming+EOU, offline TDT, CPU RTFx. |
+| Inference backends | **CPU** + **Vulkan** (two specialized `libparakeet` variants, runtime select) | Covers everyone; isolates Vulkan dependency. |
+| Audio capture | **Qt6 Multimedia `QAudioSource`** on PipeWire hosts | One API; no raw PipeWire C required for the first product. Prefer newer Qt when it brings a native PW backend. |
+| Global hotkey | **KGlobalAccel** with press/release via `globalShortcutActiveChanged` | Plasma-native; required for true hold-to-talk. Default sequence avoids Meta interception. |
+| Text insertion | **Wayland input method as implemented by KWin** → **`input_method_unstable_v1`** | Only permission-free, protocol-correct insertion path on Plasma Wayland. See §5.2. |
+| Tray | **KStatusNotifierItem** | Plasma-native on Wayland. |
+| Settings | Prefer simple, reliable persistence; **KConfigXT / KCM** when System Settings integration is worth the cost | First cut may use `QSettings`; long-term goal is KDE-native config surfaces where it helps users. |
+| Process model | **Single process** (tray + settings + pipeline) | Lowest latency; one seat input-method owner. |
+| parakeet integration | **Build-time fetch** of upstream (`ExternalProject`) into dual shared libs | Clean tree; isolated CPU/Vulkan builds; pin via git tag. |
 
-### 5.1 Dual-mode: streaming and offline
+### 5.1 Streaming and offline (both intentional)
 
-`ParakeetWorker::beginSession()` prefers streaming: if `parakeet_capi_stream_begin` succeeds, PCM is fed live and newly finalized text is emitted as it arrives. If stream begin fails (offline TDT/CTC/RNNT models), the worker buffers PCM and runs a one-shot `transcribePcm` on finalize.
+**Streaming (primary live UX).** Cache-aware streaming models with EOU (e.g. `parakeet_realtime_eou_120m-v1`) feed 16 kHz mono f32 PCM and return only newly finalized text plus an EOU/EOB mask. That is the path for “words appear as you speak,” live preedit of the unfinished tail, and natural sentence boundaries.
 
-**Default model:** offline **Parakeet TDT 0.6B v3** (`tdt-0.6b-v3-q8_0.gguf`) under `~/.local/share/kea/models/` (override with `$KEA_MODEL`). Multilingual (25 European languages); UX is buffer while the session is active, commit when it ends.
+**Offline.** TDT/CTC/RNNT models that reject `stream_begin` buffer PCM for the session and run a one-shot transcribe on finalize. Higher multilingual quality (e.g. TDT 0.6B v3, 25 European languages) at the cost of no mid-utterance commits.
 
-**Streaming model (catalog):** `parakeet_realtime_eou_120m-v1` — cache-aware streaming with EOU. Live finalized increments while the session is active; `stream_finalize` flushes the tail when the session ends.
+**Mode selection:** auto-detect from the model (`stream_begin` success → streaming; else offline). Users pick a model; they do not pick a second “engine mode” toggle.
 
-Both entries live in `data/models.json`. Mode is **model-driven**, not a separate user toggle.
+**Default model (product decision):** favor the best out-of-box accuracy/language coverage for a first install when size is acceptable; keep a clearly recommended streaming model in the catalog for live UX. Catalog and downloader must make both discoverable (see §6.6).
 
-Streaming C-API shape:
+Streaming API shape (authoritative upstream C-API):
 
 ```c
 parakeet_ctx    *ctx = parakeet_capi_load("…gguf");
@@ -136,192 +144,143 @@ char *tail = parakeet_capi_stream_finalize(s);
 parakeet_capi_stream_free(s);
 ```
 
-- Input: **16 kHz mono float32**. Kea resamples capture (typically 48 kHz int16) before feed.
-- `stream_feed` returns only text newly finalized since the last call — suitable for commit-as-you-go and (later) live preedit of the unfinished tail.
+### 5.2 Text insertion: why KWin’s input-method protocol (v1), not “newest protocol number”
 
-### 5.2 Why input-method-v1 (not v2)
+Wayland clients cannot inject keys into other surfaces. On Plasma, `virtual-keyboard` is not available to arbitrary apps (`wtype` fails). The correct design is: **be the seat’s input method** and commit strings into the focused text-input client — the same class of solution fcitx5 uses.
 
-Wayland clients cannot inject key events into surfaces they do not own. KWin does not expose the `virtual-keyboard` protocol for arbitrary clients (`wtype` fails on Plasma). The protocol-correct path is to be the seat's **input method**.
+**Platform fact (this sets the goal, not a temporary compromise):** KWin’s input-method stack is **`input_method_unstable_v1`** (`InputMethodV1Interface`). It does **not** implement `input-method-unstable-v2` for this path. Therefore the product target on Plasma is v1:
 
-**KWin implements `input_method_unstable_v1`, not v2.** Kea binds `zwp_input_method_v1` (global). On activate, KWin creates a `zwp_input_method_context_v1`. Serial comes from the context's `commit_state(serial)` event. Commits use `commit_string(serial, text)` and `preedit_string(serial, text, commit)` — not v2's double-buffered `commit_string` + separate `commit(serial)`.
+| | `input_method_unstable_v1` (KWin) | `input-method-v2` |
+| --- | --- | --- |
+| On Plasma | **Implemented** | **Not available from KWin** |
+| Object model | Global IM → per-focus **context** | Manager → seat IM object |
+| Serial | `commit_state(serial)` on the context | `done(serial)` + separate `commit` |
+| Commit | `commit_string(serial, text)` | Double-buffered `commit_string` + `commit(serial)` |
+| Preedit | `preedit_string(serial, text, commit)` | `set_preedit_string` then `commit` |
 
-**Cost:** one input method object per seat. Kea occupies that slot and cannot coexist with fcitx5/IBus (§9 R1).
+“Use v2 because the number is higher” is not a better design on Plasma — it is a design that **cannot bind**. The original draft of this RFC named v2 incorrectly. The **goal** is reliable compositor-backed insertion; on KWin that means v1 until KWin ships another protocol and we re-evaluate.
+
+**Cost (goal-level constraint):** one input method per seat. Kea owns that slot while running; coexistence with fcitx5/IBus is out of scope for the first cut (§9 R1).
 
 ### 5.3 Qt version and PipeWire
 
-CMake requires **Qt 6.6**. Qt Multimedia's **native** PipeWire backend is documented for newer Qt (≈6.10+); on 6.6–6.9 Linux capture may still go through the FFmpeg/PulseAudio-compat path while the host remains PipeWire. Kea targets PipeWire *hosts*; it does not require the native-PW Qt backend. Non-goal remains PulseAudio-**only** systems (no PipeWire).
+Minimum Qt tracks what distros and KF6 need (currently ≥ 6.6 is acceptable). Prefer newer Qt when Multimedia’s native PipeWire backend improves capture quality/latency. Host requirement remains **PipeWire**, not PulseAudio-only systems.
 
 ---
 
 ## 6. Detailed Design
 
-### 6.1 Repository & module layout
+### 6.1 Module layout (target shape)
 
-```
-kea/
-├── CMakeLists.txt                 # ECM, Qt6 ≥ 6.6, KF6
-├── cmake/parakeet.cmake           # ExternalProject: CPU (+ Vulkan) libparakeet.so
-├── io.github.su3h7am.kea.desktop
-├── io.github.su3h7am.kea.metainfo.xml
-├── data/
-│   ├── protocols/
-│   │   └── input-method-unstable-v1.xml
-│   └── models.json                # catalog (default offline TDT + streaming EOU)
-└── src/
-    ├── main.cpp
-    ├── CMakeLists.txt
-    ├── app/
-    │   ├── Main.qml               # settings + onboarding + status
-    │   ├── app_settings.*         # QSettings
-    │   ├── model_downloader.*
-    │   ├── readiness.*
-    │   └── tray_controller.*      # KStatusNotifierItem
-    ├── audio/
-    │   ├── audio_recorder.*       # QAudioSource
-    │   ├── resampler.*            # → 16 kHz mono f32
-    │   └── wav_loader.*
-    ├── inference/
-    │   └── parakeet_backend.*     # dlopen loader; offline + streaming
-    ├── hotkey/
-    │   └── global_hotkey.*        # KGlobalAccel + activeChanged
-    ├── insert/
-    │   ├── input_method.*         # v1 bind + context
-    │   ├── input_context.h        # IInputContext (test seam)
-    │   └── text_committer.*       # only path that commits/preedits
-    └── controller/
-        ├── dictation_controller.* # state machine
-        └── parakeet_worker.*      # QThread; all parakeet calls
-```
-
-App ID / QML URI / AppStream id: **`io.github.su3h7am.kea`** (not `org.kde.*` — Kea is not an official KDE project).
-
-### 6.2 The dictation controller (state machine)
-
-`DictationController` drives the pipeline (exposed to QML). States:
+Logical modules (names may grow; responsibilities should not blur):
 
 ```text
-                    loadModel
-  Idle ──────────────────────▶ LoadingModel ──fail──▶ Error / Idle
-   │                                │
-   │ start (model ready)            ok
-   ▼                                │
- Starting ──session ok──▶ Listening ──activation stop──▶ Draining ──▶ Idle
-   │                         │
-   │ fail                    │ cancel (tray)
-   ▼                         ▼
- Error / Idle               Idle (session discarded)
+kea/
+├── CMakeLists.txt / cmake/parakeet.cmake
+├── io.github.su3h7am.kea.desktop + AppStream metainfo
+├── data/
+│   ├── protocols/input-method-unstable-v1.xml
+│   └── models.json                 # catalog: ids, URLs, hashes, streaming flag
+└── src/
+    ├── app/          # UI shell, settings, tray, readiness, model download
+    ├── audio/        # capture + resample → 16 kHz mono f32
+    ├── inference/    # dlopen parakeet backends
+    ├── hotkey/       # KGlobalAccel
+    ├── insert/       # input-method client + TextCommitter only
+    └── controller/   # state machine + worker thread
 ```
 
-Also: **`ActivationMode`** — PushToTalk (hold via `activeChanged`) or Toggle (press to start/stop). PTT ignores discrete `triggered` to avoid double start/stop.
+App ID / QML URI / AppStream: **`io.github.su3h7am.kea`** (not `org.kde.*` — Kea is built *for* Plasma, not as an official KDE project).
 
-Lifecycle details that matter:
+### 6.2 Dictation controller
 
-- **`start()` enters `Starting` synchronously** so overlapping hotkey events cannot open multiple mic/parakeet sessions.
-- **Start/Stop in the UI** load and unload the model; settings that affect the backend (path, CPU/Vulkan) are only editable when the model is not loaded (`canConfigure`).
-- **Streaming:** `onTextFinalized` → `TextCommitter::commitText` for each increment; finalize commits the tail.
-- **Offline:** no increments; full transcript on `sessionFinished`.
-- **Cancel:** `DictationController::cancel()` discards the session (wired from the tray menu). No Esc global shortcut in v1.
-- **Preedit:** `TextCommitter::setPreedit` / `clearPreedit` are implemented and unit-tested but the controller does not call them yet (no live inline feedback; see open issues).
+Central state machine (names indicative):
 
-Threading invariant: parakeet C-API is **not** thread-safe per context. All stream/transcribe calls for a session run on the worker thread. One session at a time.
-
-### 6.3 Inference backend: CPU + Vulkan via two `libparakeet` variants
-
-parakeet.cpp is built **twice** via `ExternalProject_Add` (when `-DKEA_BUILD_PARAKEET=ON`), producing self-contained shared libraries with an identical flat C-API:
-
-| Variant | Build flag | Runtime dependency |
-| --- | --- | --- |
-| CPU `libparakeet.so` | `-DPARAKEET_SHARED=ON` | none |
-| Vulkan `libparakeet.so` | `-DPARAKEET_SHARED=ON -DPARAKEET_GGML_VULKAN=ON` | Vulkan loader + capable GPU |
-
-Artifacts land under `build/parakeet/{cpu,vulkan}-build/`. `ParakeetBackend` `dlopen`s the selected variant and resolves symbols (load/free, offline transcribe, stream begin/feed/finalize/free, free_string, last_error).
-
-- If Vulkan fails to load, the worker falls back to CPU.
-- **Backend switch:** both variants ship private `libggml*.so` with the **same SONAME**. Switching requires `dlclose` of the old variant before `dlopen` of the new one, or the dynamic linker reuses the old ggml mapping. After `dlclose`, ggml's process-global `std::terminate` handler is stale — `unload()` resets it to `std::abort`. This works but is fragile (see §9 R9).
-
-> **Alternative considered:** single Vulkan-enabled build + `PARAKEET_DEVICE`. Rejected for v1 (no device-select C-API; couples every install to the Vulkan loader).
-
-### 6.4 Audio capture & resampling
-
-`AudioRecorder` wraps `QAudioSource` (pull / short poll interval to avoid re-entrancy issues on some backends):
-
-```cpp
-// format: typically 48 kHz, mono, Int16
-m_source = new QAudioSource(QMediaDevices::defaultAudioInput(), fmt, this);
+```text
+ Idle ──load──▶ LoadingModel ──▶ (ready)
+ Idle/ready ──activation start──▶ Starting ──▶ Listening
+ Listening ──activation stop──▶ Draining ──▶ Idle
+ any busy ──cancel──▶ Idle (discard)
+ failures ──▶ Error (recoverable → Idle)
 ```
 
-Each chunk: int16 → float32, linear-resample **48 kHz → 16 kHz**, hand mono f32 blocks to the worker. RMS level drives a UI meter. No VAD gate in v1 (streaming EOU models detect ends; offline path uses the full hold window).
+**Activation modes:** PushToTalk (hold) and Toggle. Session lifecycle is mode-neutral: “session active” / “session end,” not only key-up.
 
-### 6.5 Text insertion subsystem
+**Invariants:**
 
-**Binding.** `qt_generate_wayland_protocol_client_sources` on `data/protocols/input-method-unstable-v1.xml`. `InputMethod` extends `QWaylandClientExtensionTemplate` and implements `QtWayland::zwp_input_method_v1`:
+- Enter “starting” synchronously so double activation cannot open two sessions.
+- All parakeet calls for a context on one worker thread (C-API is not thread-safe per context).
+- All commits/preedits go through **TextCommitter** only.
+- Cancel clears preedit and frees the session without committing junk.
+- When commit is impossible (no context), surface that to the user (G9) — never look successful while dropping text.
 
-```cpp
-// bind zwp_input_method_v1 (global)
-// activate → new zwp_input_method_context_v1
-// context: commit_state(serial), surrounding_text, reset, …
-// commit_string(serial, text) / preedit_string(serial, text, fallbackCommit)
-```
+### 6.3 Inference backends
 
-**Commit flow (v1):**
+Build two `libparakeet` shared libraries (CPU; Vulkan when available) with an identical C-API. Runtime selection via `dlopen`. CPU is always the fallback.
 
-1. Wait for activate + a live context; track serial from `commit_state`.
-2. Finalized text → `TextCommitter::commitText` → `commit_string(serial, text)` while the context is valid.
-3. Inactive / destroyed context → skip commit (count + error string); never crash.
+**Backend switch:** changing CPU ↔ Vulkan is rare. Preferred robust design: load at most one variant per process lifetime and **restart to apply** if process-global ggml state makes `dlclose` unsafe. If runtime switch is kept, it must fully unload the previous variant (SONAME collision on private `libggml*.so`) and not leave stale process-global handlers — but restart-to-apply remains the simpler product default.
 
-**TextCommitter** is the only component that may talk to an `IInputContext`. Serial bookkeeping lives on the Wayland context object; TextCommitter owns skip-when-inactive, preedit idempotency, and test-friendly counting. Unit tests use a mock context (`kea-committer-test`).
+### 6.4 Audio
 
-### 6.6 Settings & model management
+Capture via `QAudioSource`, convert to 16 kHz mono f32 for parakeet. Level meter from RMS. Optional higher-quality resampler later; linear is acceptable for the first product.
 
-Persisted with **`QSettings("kea", "kea")`**: `modelPath`, `backend` (0=CPU, 1=Vulkan), `hotkey`, `activationMode`, `onboardingDone`.
+### 6.5 Text insertion
 
-Settings UI is a single Kirigami page in `Main.qml` (not a multi-page Model Manager yet):
+Bind KWin’s `zwp_input_method_v1`. On activate, own a `zwp_input_method_context_v1`. Track serial from `commit_state`. Expose an `IInputContext` seam so TextCommitter and tests never talk to Wayland directly.
 
-- **Shortcut** — default Ctrl+Shift+D; registered with KGlobalAccel (user can also override in System Settings → Shortcuts → Kea).
-- **Model path** — free path + optional download of the default GGUF from HuggingFace (`mudler/parakeet-cpp-gguf`). Catalog file `data/models.json` exists; full catalog browser and **checksum verification are not wired yet**.
-- **Backend** — CPU | Vulkan.
-- **Activation** — push-to-talk | toggle.
+**Commit path (goal):**
+
+1. Active context + known serial.
+2. Finalized ASR text → `commit_string`.
+3. Unfinished / gated text → `preedit_string` (live feedback; also the seam for future transform-before-commit).
+4. On session end: commit tail, clear preedit.
+
+### 6.6 Settings & models
+
+- Hotkey, backend, activation mode, model path.
+- **Model catalog** (`models.json`): name, description, size, streaming vs offline, download URL, **integrity hash**.
+- Downloader: progress, cancel, verify hash before promoting the file into place.
+- First-run onboarding: model present, input method bound, mic usable.
 
 ### 6.7 UI surfaces
 
-- **System tray** (KStatusNotifierItem): state-aware; menu includes Start/Stop dictation, Cancel, Settings, Quit.
-- **Settings window** (Kirigami `ApplicationWindow`): readiness banner, model path, download, backend, hotkey, activation mode; close-to-tray.
-- **Floating "listening" indicator / live preedit:** not implemented. Preedit API exists for a later pass.
+- Tray: state, start/stop, cancel, settings, quit.
+- Settings window: readiness, model management, backend, hotkey (prefer **KeySequenceItem**-class capture over free-typed strings).
+- **Live feedback:** preedit in the focused field and/or floating listening pill (layer-shell or input-panel — open detail).
 
 ---
 
 ## 7. Build & Packaging
 
-- **Toolchain:** CMake + ECM, Qt6 ≥ 6.6 (Core, Gui, Qml, Quick, QuickControls2, Multimedia, Network, WaylandClient), KF6 (Kirigami, I18n, CoreAddons, Config, GlobalAccel, StatusNotifierItem, IconThemes).
-- **parakeet.cpp:** fetched at build time by `cmake/parakeet.cmake` (`ExternalProject_Add`, pin via `KEA_PARAKEET_GIT_*`). Target `parakeet_all`. GUI-only builds: `-DKEA_BUILD_PARAKEET=OFF`.
-- **Wayland protocol:** `input-method-unstable-v1.xml` under `data/protocols`.
-- **QML module:** `ecm_add_qml_module(kea URI io.github.su3h7am.kea)` — executable target created **before** the QML module so `main()` is preserved.
-- **Tests:** `kea-resampler-test`, `kea-committer-test`, `kea-controller-test`, `kea-parakeet-backend-test`; optional smokes when parakeet is built.
-- **Packaging (planned):** Flatpak and/or AppImage; `.desktop` + AppStream metadata already present. Flatpak will need mic + Vulkan + PipeWire permissions.
+- CMake + ECM, Qt6, KF6 (Kirigami, I18n, CoreAddons, Config, GlobalAccel, StatusNotifierItem, IconThemes, …).
+- parakeet via build-time ExternalProject; `KEA_BUILD_PARAKEET=OFF` for UI-only iteration.
+- Protocol XML vendored for the KWin input-method interface in use.
+- Package: native distro packages and/or Flatpak/AppImage; AppStream + `.desktop` required. Sandbox needs mic + GPU + input-method-relevant permissions.
 
 ---
 
 ## 8. Implementation status
 
-Phases 0–4 are **scaffolded / largely implemented** (pre-alpha). Mapping to the original plan:
+Snapshot of the tree relative to the goals above. **Update this section when shipping; do not silently lower goals in §§1–7 to match unfinished work.**
 
-| Area | Status |
+| Goal area | Status (pre-alpha) |
 | --- | --- |
-| CMake, Kirigami shell, tray, about | Done |
-| ExternalProject dual `libparakeet` + dlopen loader | Done |
-| AudioRecorder + resampler | Done |
-| Streaming feed + offline buffer path | Done |
-| input-method-v1 + TextCommitter | Done |
-| DictationController + ParakeetWorker | Done |
-| KGlobalAccel hold-to-talk (+ toggle mode) | Done |
-| Settings (QSettings) + model path + backend | Done |
-| Default model download | Partial (no integrity verify; catalog not full UI) |
-| Cancel | Tray menu only (no Esc binding) |
-| Live preedit / floating listening indicator | Not done (API only for preedit) |
-| Flatpak/AppImage | Not done |
-| Esc-cancel, multi-page model manager | Not done |
-
-**Later phases (unchanged intent):** LLM cleanup/transforms, transcript history, snippets, personal dictionary, richer multilingual UI, fcitx5 coexistence.
+| Kirigami shell, tray, about | Present |
+| Dual libparakeet + dlopen | Present |
+| Audio + resampler | Present |
+| Streaming + offline sessions | Present |
+| input-method-v1 + TextCommitter | Present |
+| Controller + worker + PTT/toggle | Present |
+| Model download | Partial (no hash verify; catalog not fully UI-driven) |
+| Live preedit wired from controller | Missing (API exists) |
+| Floating listening indicator | Missing |
+| Esc-cancel binding | Missing (tray cancel exists) |
+| Silent commit failure UX (G9) | Partial / weak |
+| Flatpak/AppImage | Missing |
+| KConfigXT / KCM | Not started (`QSettings` in tree) |
+| KeySequenceItem hotkey capture | Not started (free-text field) |
+| LLM transform pipeline | Design only (separate issue) |
+| Transcript history | Design only (separate issue) |
 
 ---
 
@@ -329,50 +288,47 @@ Phases 0–4 are **scaffolded / largely implemented** (pre-alpha). Mapping to th
 
 | # | Risk | Impact | Mitigation |
 | --- | --- | --- | --- |
-| R1 | **IME slot conflict.** One input method per seat; fcitx5/IBus blocks Kea. | High | Detect bind failure; readiness UI warns. Document. Long-term: fcitx5 add-on or protocol evolution. |
-| R2 | **Serial/context correctness.** Commits against a dead context or stale serial drop or mis-order text. | High | All commits via `TextCommitter`; skip when `IInputContext` invalid; unit-test commit/preedit; serial owned by context from `commit_state`. |
-| R3 | **Client quirks.** Some surfaces never activate a text-input / input-method context (e.g. certain terminals). | Medium | Test matrix; readiness when no context; optional fallback modes later. |
-| R4 | **Vulkan fragility** (drivers, RADV + Qt Quick crashes observed on some setups). | Medium | Ship CPU always; auto-fallback on load; log a switch-to-CPU hint when Vulkan is selected. |
-| R5 | **Latency / quality tradeoff.** Streaming small models vs offline larger multilingual models. | Medium | Dual-mode; default offline TDT for quality/languages; streaming model in catalog for live UX. |
-| R6 | **Global hotkey reliability on Wayland.** Meta interception; need press+release for PTT. | Low–Med | Use `KGlobalAccel::globalShortcutActiveChanged`; default Ctrl+Shift+D; tray Start/Stop fallback. |
-| R7 | **parakeet C-API not thread-safe per context.** | Medium | Single worker thread for all parakeet calls; one session. |
-| R8 | **Sandboxed mic / protocol permissions** (Flatpak). | Low | Portal declarations when packaging; native package alternative. |
-| R9 | **CPU↔Vulkan `dlclose` / ggml SONAME collision.** Dual libs share SONAMEs; stale terminate handler after unload. | Medium | Documented unload/load ordering + `std::set_terminate(std::abort)`. Alternative: require app restart to switch backends (simpler, deletes the dance). |
+| R1 | One IM per seat; conflict with fcitx5/IBus | High | Detect bind failure; clear readiness copy; document. Long-term: integration or protocol evolution. |
+| R2 | Serial / context races drop or reorder text | High | TextCommitter-only commits; skip when invalid; tests; log and surface failures (G9). |
+| R3 | Clients that never activate a usable text-input / IM context (some terminals) | Medium | Diagnostics; app matrix; user-visible fallback (history/clipboard-opt-in) only with explicit UX. |
+| R4 | Vulkan/driver fragility | Medium | CPU always available; fallback; honest settings hints. |
+| R5 | Latency vs quality | Medium | Dual-mode models; catalog guidance; expose threads/quant later. |
+| R6 | Global hotkey reliability on Wayland | Low–Med | `activeChanged` for hold; avoid Meta defaults; tray fallback. |
+| R7 | parakeet C-API thread safety | Medium | Single worker thread per context. |
+| R8 | Sandbox permissions (Flatpak) | Low | Declare portals; offer native package. |
+| R9 | Dual-backend `dlclose` / ggml process-global state | Medium | Prefer restart-to-apply for backend switch; if runtime switch remains, document SONAME + terminate-handler constraints. |
 
 ---
 
 ## 10. Open Questions
 
-1. ~~**Streaming vs. offline as default.**~~ **Resolved:** dual-mode is intentional; default catalog/path is offline TDT 0.6B v3; streaming EOU remains first-class when that model is selected.
-2. **Floating overlay mechanism.** Layer-shell window vs input-panel surface under v1 — undecided; preedit-in-field is the other feedback path.
-3. **Model downloader integrity.** Checksums / signature for GGUF downloads; wire `models.json` into a real picker UI.
-4. **Quantization default.** q8_0 remains the safe default; offer smaller quants later for constrained devices.
-5. **Packaging priority.** Flatpak first vs native distro packages (mic + input-method permissions differ).
-6. **Backend switch UX.** Keep runtime `dlclose` switch vs "restart to apply" (see R9).
+1. **Default model recommendation** in the catalog/onboarding (streaming EOU vs offline TDT) — both must remain one-click installable.
+2. **Floating overlay** mechanism (layer-shell vs input-panel) vs relying primarily on preedit.
+3. **Model integrity** scheme (SHA-256 in `models.json` vs signed manifests).
+4. **Packaging priority** (Flatpak vs native).
+5. **Backend switch UX** (restart-to-apply vs runtime `dlclose`).
+6. **Post-processing presets** and multi-hotkey vs single hotkey (design issue #6).
+7. **History UX** after comparable-app research (design issue #7).
 
 ---
 
 ## 11. Alternatives Considered
 
-- **Text insertion via `uinput`/`ydotool`.** Works alongside IMEs but needs privileges and types keystroke-by-keystroke (or clipboard paste). Rejected for v1; revisit as fallback if R1/R3 bite hard.
-- **Text insertion via `wtype` (`virtual-keyboard`).** Rejected — KWin does not support it for arbitrary clients.
-- **input-method-v2.** Not implemented by KWin for this use case; Kea targets v1.
-- **Single parakeet build + `PARAKEET_DEVICE`.** Rejected for v1 (no C-API device select; Vulkan loader coupling).
-- **parakeet as a separate HTTP server.** Rejected — latency and packaging cost; in-process `dlopen` preferred.
-- **Whisper.cpp as the engine.** Rejected — parakeet is faster on CPU/GPU with streaming+EOU support.
-- **Git submodule for parakeet.cpp.** Rejected in favor of build-time ExternalProject (isolated dual builds, clean source tree).
-- **LLM cleanup at launch.** Deferred — pure ASR first; controller/`TextCommitter` seam keeps a later transform stage low-risk.
-- **KConfigXT / KCM settings.** Deferred; `QSettings` is enough for v1.
+- **`uinput` / ydotool / clipboard-paste fallbacks.** Useful as *explicit* fallbacks for R3; not the primary path (permissions, paste safety, clipboard clobber).
+- **`wtype` / virtual-keyboard.** Rejected on Plasma for arbitrary clients.
+- **Targeting input-method-v2 as the Plasma goal.** Rejected while KWin does not implement it; would not bind. Revisit if KWin adds v2/v3.
+- **Single Vulkan `libparakeet` + env device select.** Rejected until a real C-API device selector exists.
+- **Separate ASR HTTP process.** Rejected for latency and packaging complexity.
+- **Whisper.cpp as primary engine.** Rejected for CPU/GPU speed and streaming+EOU fit.
+- **Git submodule for parakeet.** Build-time ExternalProject preferred for dual isolated builds.
+- **LLM polish on day one.** Deferred; reserve TextCommitter/preedit seam.
 
 ---
 
 ## 12. References
 
-- parakeet.cpp — upstream repo; C-API in `include/parakeet_capi.h` (fetched under `build/parakeet/*-src/` when built).
-- Streaming API: `parakeet_capi_stream_begin/feed/finalize/free`, EOU/EOB bitmask.
-- Build flags: `-DPARAKEET_SHARED=ON`, `-DPARAKEET_GGML_VULKAN=ON`.
-- Models: HuggingFace `mudler/parakeet-cpp-gguf` — default offline `tdt-0.6b-v3-q8_0.gguf`; streaming `parakeet_realtime_eou_120m-v1`.
-- Kea contributor notes: `AGENTS.md` (invariants; preferred over outdated memory of this RFC).
-- Wayland `input-method-unstable-v1` (vendored XML); KWin `InputMethodV1Interface`.
-- Qt6: `QWaylandClientExtensionTemplate`, `qt_generate_wayland_protocol_client_sources`, Multimedia `QAudioSource`.
-- Hotkey: `KGlobalAccel` (`globalShortcutActiveChanged`). Tray: `KStatusNotifierItem`.
+- parakeet.cpp C-API (`parakeet_capi_stream_*`, offline transcribe); models on HuggingFace `mudler/parakeet-cpp-gguf`.
+- KWin `InputMethodV1Interface` / `input_method_unstable_v1` (vendored XML under `data/protocols/`).
+- Qt Wayland client extensions; Qt Multimedia `QAudioSource`.
+- `KGlobalAccel`, `KStatusNotifierItem`, Kirigami.
+- Contributor invariants: `AGENTS.md` (operational “do not regress”; this RFC remains the product design target).
