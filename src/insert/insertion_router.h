@@ -28,6 +28,14 @@
  *   1. Input method (KWin IM-v1 → commit_string) — preferred caret insert.
  *   2. (Future) optional inject backends — before clipboard only.
  *   3. Clipboard — always the *last* fallback.
+ *
+ * ## Lessons from fcitx5 waylandim (study only; not a dependency)
+ *
+ * fcitx5 runs separate frontends per protocol (IM-v1 for KWin, IM-v2 + optional
+ * virtual-keyboard for wlroots), chunks commit_string under 4000 UTF-8 bytes,
+ * tracks commit_state serial, and uses content_type/surrounding_text. Kea
+ * mirrors the KWin-relevant pieces (v1 + chunking + content_type logging);
+ * IM-v2 remains future if KWin ever exposes it.
  */
 #pragma once
 

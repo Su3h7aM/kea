@@ -95,6 +95,8 @@ add_library(kea_insert STATIC
     insert/input_context.h
     insert/input_method.h
     insert/input_method.cpp
+    insert/commit_chunks.h
+    insert/commit_chunks.cpp
     insert/text_committer.h
     insert/text_committer.cpp
     insert/insertion_router.h
