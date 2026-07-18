@@ -119,9 +119,9 @@ The hard problem is not recognition — it is **injecting text into arbitrary ap
 
 `ParakeetWorker::beginSession()` prefers streaming: if `parakeet_capi_stream_begin` succeeds, PCM is fed live and newly finalized text is emitted as it arrives. If stream begin fails (offline TDT/CTC/RNNT models), the worker buffers PCM and runs a one-shot `transcribePcm` on finalize.
 
-**Default model:** offline **Parakeet TDT 0.6B v3** (`tdt-0.6b-v3-q8_0.gguf`) under `~/.local/share/kea/models/` (override with `$KEA_MODEL`). Multilingual (25 European languages); UX is buffer-while-held, commit-on-release.
+**Default model:** offline **Parakeet TDT 0.6B v3** (`tdt-0.6b-v3-q8_0.gguf`) under `~/.local/share/kea/models/` (override with `$KEA_MODEL`). Multilingual (25 European languages); UX is buffer while the session is active, commit when it ends.
 
-**Streaming model (catalog):** `parakeet_realtime_eou_120m-v1` — cache-aware streaming with EOU. Live finalized increments while speaking; `stream_finalize` flushes the tail on release.
+**Streaming model (catalog):** `parakeet_realtime_eou_120m-v1` — cache-aware streaming with EOU. Live finalized increments while the session is active; `stream_finalize` flushes the tail when the session ends.
 
 Both entries live in `data/models.json`. Mode is **model-driven**, not a separate user toggle.
 
