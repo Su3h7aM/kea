@@ -56,6 +56,8 @@ find_package(Qt6WaylandScannerTools REQUIRED)
 
 # QtQuick Controls style: Breeze desktop style (matches Plasma).
 ecm_find_qmlmodule(org.kde.kirigami REQUIRED)
+# Key sequence capture widget (System Settings–style shortcut editor).
+ecm_find_qmlmodule(org.kde.kquickcontrols REQUIRED)
 
 # --- parakeet.cpp: fetched and built by ExternalProject (two variants) ---
 # Controlled so the GUI can build independently of the heavy ASR build.

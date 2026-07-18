@@ -18,6 +18,9 @@ class AppSettings : public QObject
     Q_PROPERTY(QString modelPath READ modelPath WRITE setModelPath NOTIFY modelPathChanged)
     Q_PROPERTY(int backend READ backend WRITE setBackend NOTIFY backendChanged)
     Q_PROPERTY(QString hotkey READ hotkeyString WRITE setHotkeyString NOTIFY hotkeyChanged)
+    /// Same shortcut as `hotkey`, for QML controls that speak `QKeySequence`
+    /// (e.g. KeySequenceItem) without string round-trips.
+    Q_PROPERTY(QKeySequence hotkeySequence READ hotkey WRITE setHotkey NOTIFY hotkeyChanged)
     Q_PROPERTY(int activationMode READ activationMode WRITE setActivationMode NOTIFY activationModeChanged)
     Q_PROPERTY(bool onboardingDone READ onboardingDone WRITE setOnboardingDone NOTIFY onboardingDoneChanged)
     Q_PROPERTY(bool modelFileExists READ modelFileExists NOTIFY modelPathChanged)

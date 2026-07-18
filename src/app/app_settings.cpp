@@ -49,12 +49,16 @@ void AppSettings::load()
     m_backend = s.value(QStringLiteral("backend"), 0).toInt(); // default CPU
     m_activationMode = s.value(QStringLiteral("activationMode"), 0).toInt();
     m_onboardingDone = s.value(QStringLiteral("onboardingDone"), false).toBool();
-    const QString hot = s.value(QStringLiteral("hotkey"),
-                                GlobalHotkey::defaultSequence().toString(QKeySequence::PortableText))
-                            .toString();
-    m_hotkey = QKeySequence::fromString(hot, QKeySequence::PortableText);
-    if (m_hotkey.isEmpty()) {
+    // Missing key → factory default. Present-but-empty → user cleared (disabled).
+    if (!s.contains(QStringLiteral("hotkey"))) {
         m_hotkey = GlobalHotkey::defaultSequence();
+    } else {
+        const QString hot = s.value(QStringLiteral("hotkey")).toString();
+        m_hotkey = QKeySequence::fromString(hot, QKeySequence::PortableText);
+        if (m_hotkey.isEmpty() && !hot.isEmpty()) {
+            m_hotkey = QKeySequence::fromString(hot, QKeySequence::NativeText);
+        }
+        // Leave empty if the user explicitly cleared the shortcut.
     }
     // Never keep a path that clearly came from automated tests.
     if (m_modelPath.contains(QStringLiteral("kea-definitely-missing-model"))) {
@@ -106,7 +110,8 @@ void AppSettings::setHotkey(const QKeySequence &seq)
     if (seq == m_hotkey) {
         return;
     }
-    m_hotkey = seq.isEmpty() ? GlobalHotkey::defaultSequence() : seq;
+    // Empty is allowed: means "no global hotkey" (tray start/stop only).
+    m_hotkey = seq;
     save();
     Q_EMIT hotkeyChanged();
 }
