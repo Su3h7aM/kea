@@ -4,10 +4,15 @@
  *
  * InsertionRouter — deliver finalized text into the focused client.
  *
- * Primary: Wayland input-method-v1 via TextCommitter (caret insert).
- * Fallback: clipboard copy when no IM context (terminals, GTK surfaces that
- * never enable text-input, etc.). Auto key-inject (ydotool/portal) is out of
- * scope for this layer.
+ * Ordered insert chain (stop at first success):
+ *
+ *   1. Input method (KWin input_method_unstable_v1 → commit_string)
+ *      Prefer this: true caret insert when the client enables text-input.
+ *   2. (Future) optional inject backends — virtual key / portal / helper tool.
+ *      Slot in *before* clipboard when implemented. Not client-toolkit IMs
+ *      (GTK/Qt IM modules live inside the target app; Kea cannot implement those).
+ *   3. Clipboard — always the *last* fallback: recover text for paste when
+ *      nothing else can insert. Never preferred over a real insert path.
  */
 #pragma once
 
@@ -26,15 +31,18 @@ class InsertionRouter : public QObject
     Q_PROPERTY(bool canUseInputMethod READ canUseInputMethod NOTIFY canUseInputMethodChanged)
 
 public:
+    /// Which step of the chain delivered the text (or None if nothing did).
     enum class Path {
         None = 0,
         InputMethod = 1,
-        Clipboard = 2,
+        /// Reserved for a future mid-chain inject backend (before clipboard).
+        Inject = 2,
+        Clipboard = 3, ///< last resort only
     };
     Q_ENUM(Path)
 
     struct Result {
-        bool delivered = false; ///< true if IM commit succeeded or clipboard got the text
+        bool delivered = false; ///< true if any chain step accepted the text
         Path path = Path::None;
         QString detail; ///< error or human status (empty on pure IM success)
     };
@@ -44,12 +52,13 @@ public:
     void setTextCommitter(TextCommitter *committer);
     TextCommitter *textCommitter() const { return m_committer; }
 
+    /// When true (default), step 3 (clipboard) runs if earlier steps fail.
     bool clipboardFallbackEnabled() const { return m_clipboardFallback; }
     void setClipboardFallbackEnabled(bool enabled);
 
     bool canUseInputMethod() const;
 
-    /// Try IM commit; on failure optionally copy to clipboard.
+    /// Run the insert chain: IM → (future inject) → clipboard (if enabled).
     Result insertText(const QString &text);
 
     bool setPreedit(const QString &text);
@@ -64,7 +73,10 @@ Q_SIGNALS:
     void inserted(Path path, const QString &text);
 
 private:
-    bool copyToClipboard(const QString &text, QString *errorOut);
+    /// Step 1.
+    bool tryInputMethod(const QString &text, QString *errorOut);
+    /// Step 3 (last).
+    bool tryClipboardLastResort(const QString &text, QString *errorOut);
 
     TextCommitter *m_committer = nullptr;
     bool m_clipboardFallback = true;

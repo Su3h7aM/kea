@@ -225,9 +225,10 @@ Kirigami.ApplicationWindow {
                 }
 
                 Controls.CheckBox {
-                    Kirigami.FormData.label: i18nc("@label", "Clipboard fallback")
+                    Kirigami.FormData.label: i18nc("@label", "Clipboard (last resort)")
                     text: i18nc("@option",
-                        "If insert fails (e.g. some terminals), copy transcript so you can paste")
+                        "If no better insert path works (e.g. some terminals), " +
+                        "copy the transcript so you can paste")
                     checked: _settings ? _settings.clipboardFallback : true
                     onToggled: {
                         if (_settings)

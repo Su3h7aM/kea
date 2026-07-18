@@ -70,13 +70,32 @@ int main(int argc, char **argv)
         r.setClipboardFallbackEnabled(true);
         const auto res = r.insertText(QStringLiteral("from-mic"));
         check(res.delivered, "delivered via clipboard");
-        check(res.path == InsertionRouter::Path::Clipboard, "path=clipboard");
+        check(res.path == InsertionRouter::Path::Clipboard, "path=clipboard last resort");
         check(QGuiApplication::clipboard()->text() == QStringLiteral("from-mic"),
               "clipboard has text");
         check(!res.detail.isEmpty(), "status detail non-empty");
+        check(res.detail.contains(QStringLiteral("last-resort"))
+                  || res.detail.contains(QStringLiteral("clipboard")),
+              "detail mentions last-resort/clipboard");
     }
 
-    std::printf("[router] fail hard when fallback disabled and no context\n");
+    std::printf("[router] IM preferred over clipboard when both available\n");
+    {
+        TextCommitter c;
+        MockContext mock;
+        c.setContext(&mock);
+        InsertionRouter r;
+        r.setTextCommitter(&c);
+        r.setClipboardFallbackEnabled(true);
+        QGuiApplication::clipboard()->clear();
+        const auto res = r.insertText(QStringLiteral("prefer-im"));
+        check(res.path == InsertionRouter::Path::InputMethod, "uses IM not clipboard");
+        check(mock.commits.size() == 1, "IM commit happened");
+        // Clipboard must not be the chosen path when IM works.
+        check(res.path != InsertionRouter::Path::Clipboard, "clipboard is not used");
+    }
+
+    std::printf("[router] fail hard when last-resort clipboard disabled and no context\n");
     {
         TextCommitter c;
         InsertionRouter r;

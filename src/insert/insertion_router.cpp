@@ -47,6 +47,46 @@ bool InsertionRouter::canUseInputMethod() const
     return m_committer && m_committer->canCommit();
 }
 
+bool InsertionRouter::tryInputMethod(const QString &text, QString *errorOut)
+{
+    if (!m_committer) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("no text committer");
+        }
+        return false;
+    }
+    if (m_committer->commitText(text)) {
+        return true;
+    }
+    if (errorOut) {
+        *errorOut = m_committer->lastError().isEmpty()
+            ? QStringLiteral("no active text field")
+            : m_committer->lastError();
+    }
+    return false;
+}
+
+bool InsertionRouter::tryClipboardLastResort(const QString &text, QString *errorOut)
+{
+    QClipboard *clip = QGuiApplication::clipboard();
+    if (!clip) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("no clipboard");
+        }
+        return false;
+    }
+    // Clipboard mode for Ctrl+V; primary selection for middle-click paste.
+    clip->setText(text, QClipboard::Clipboard);
+    clip->setText(text, QClipboard::Selection);
+    if (clip->text(QClipboard::Clipboard) != text) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("clipboard write did not stick");
+        }
+        return false;
+    }
+    return true;
+}
+
 InsertionRouter::Result InsertionRouter::insertText(const QString &text)
 {
     Result r;
@@ -58,7 +98,9 @@ InsertionRouter::Result InsertionRouter::insertText(const QString &text)
         return r;
     }
 
-    if (m_committer && m_committer->commitText(text)) {
+    // --- Step 1: input method (preferred) ---------------------------------
+    QString stepErr;
+    if (tryInputMethod(text, &stepErr)) {
         r.delivered = true;
         r.path = Path::InputMethod;
         m_lastPath = r.path;
@@ -67,45 +109,45 @@ InsertionRouter::Result InsertionRouter::insertText(const QString &text)
         Q_EMIT inserted(r.path, text);
         return r;
     }
+    const QString priorFailure = stepErr;
 
-    const QString imErr = m_committer
-        ? (m_committer->lastError().isEmpty()
-               ? QStringLiteral("no active text field")
-               : m_committer->lastError())
-        : QStringLiteral("no text committer");
+    // --- Step 2: future inject backends (key inject / portal / helper) ----
+    // Intentionally empty. When added, try them here and return Path::Inject
+    // on success. Do not put clipboard above this step.
 
+    // --- Step 3: clipboard (last resort only) -----------------------------
     if (!m_clipboardFallback) {
         r.delivered = false;
         r.path = Path::None;
-        r.detail = imErr;
+        r.detail = priorFailure;
         m_lastPath = r.path;
         m_lastDetail = r.detail;
-        qWarning().nospace() << "Kea: insert failed (IM only): " << imErr
-                             << " chars=" << text.size();
+        qWarning().nospace() << "Kea: insert failed (no last-resort clipboard): "
+                             << priorFailure << " chars=" << text.size();
         return r;
     }
 
     QString clipErr;
-    if (!copyToClipboard(text, &clipErr)) {
+    if (!tryClipboardLastResort(text, &clipErr)) {
         r.delivered = false;
         r.path = Path::None;
-        r.detail = QStringLiteral("%1; clipboard failed: %2").arg(imErr, clipErr);
+        r.detail = QStringLiteral("%1; clipboard failed: %2").arg(priorFailure, clipErr);
         m_lastPath = r.path;
         m_lastDetail = r.detail;
-        qWarning().nospace() << "Kea: insert failed (IM+clipboard): " << r.detail
-                             << " chars=" << text.size();
+        qWarning().nospace() << "Kea: insert failed (IM + last-resort clipboard): "
+                             << r.detail << " chars=" << text.size();
         return r;
     }
 
     r.delivered = true;
     r.path = Path::Clipboard;
     r.detail = QStringLiteral(
-        "No active text field — transcript copied to clipboard. "
-        "Paste with Ctrl+V (or Shift+Insert in many terminals).");
+        "Could not insert into the focused app — transcript is on the clipboard "
+        "(last-resort fallback). Paste with Ctrl+V (or Shift+Insert in many terminals).");
     m_lastPath = r.path;
     m_lastDetail = r.detail;
-    qInfo().nospace() << "Kea: insert path=clipboard chars=" << text.size()
-                      << " reason=" << imErr;
+    qInfo().nospace() << "Kea: insert path=clipboard (last resort) chars=" << text.size()
+                      << " reason=" << priorFailure;
     Q_EMIT inserted(r.path, text);
     return r;
 }
@@ -118,28 +160,6 @@ bool InsertionRouter::setPreedit(const QString &text)
 bool InsertionRouter::clearPreedit()
 {
     return m_committer ? m_committer->clearPreedit() : true;
-}
-
-bool InsertionRouter::copyToClipboard(const QString &text, QString *errorOut)
-{
-    QClipboard *clip = QGuiApplication::clipboard();
-    if (!clip) {
-        if (errorOut) {
-            *errorOut = QStringLiteral("no clipboard");
-        }
-        return false;
-    }
-    // Prefer Clipboard mode (not Selection) so Ctrl+V works in GTK/Qt/Firefox.
-    clip->setText(text, QClipboard::Clipboard);
-    // Also seed primary selection for middle-click paste (XWayland / some terminals).
-    clip->setText(text, QClipboard::Selection);
-    if (clip->text(QClipboard::Clipboard) != text) {
-        if (errorOut) {
-            *errorOut = QStringLiteral("clipboard write did not stick");
-        }
-        return false;
-    }
-    return true;
 }
 
 } // namespace kea

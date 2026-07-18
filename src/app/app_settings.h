@@ -22,8 +22,8 @@ class AppSettings : public QObject
     /// (e.g. KeySequenceItem) without string round-trips.
     Q_PROPERTY(QKeySequence hotkeySequence READ hotkey WRITE setHotkey NOTIFY hotkeyChanged)
     Q_PROPERTY(int activationMode READ activationMode WRITE setActivationMode NOTIFY activationModeChanged)
-    /// When input-method cannot commit (e.g. terminal never enables text-input),
-    /// copy the transcript to the clipboard so the user can paste.
+    /// Last-resort only: if every real insert path fails, copy the transcript
+    /// to the clipboard so the user can paste (e.g. terminals without text-input).
     Q_PROPERTY(bool clipboardFallback READ clipboardFallback WRITE setClipboardFallback
                    NOTIFY clipboardFallbackChanged)
     Q_PROPERTY(bool onboardingDone READ onboardingDone WRITE setOnboardingDone NOTIFY onboardingDoneChanged)
