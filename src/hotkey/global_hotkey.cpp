@@ -57,19 +57,24 @@ void GlobalHotkey::setSequence(const QKeySequence &seq)
     if (seq == m_sequence) {
         return;
     }
-    m_sequence = seq.isEmpty() ? defaultSequence() : seq;
+    // Empty is allowed: unregisters the global shortcut (disabled).
+    m_sequence = seq;
     reregister();
     Q_EMIT sequenceChanged();
 }
 
 void GlobalHotkey::reregister()
 {
-    const QList<QKeySequence> keys{m_sequence};
     // Standard KDE pattern: setDefaultShortcut seeds the System Settings
     // default; setShortcut (without NoAutoloading) respects any user override
     // from System Settings while registering our key on first run.
-    KGlobalAccel::self()->setDefaultShortcut(m_action, keys, KGlobalAccel::NoAutoloading);
-    KGlobalAccel::self()->setShortcut(m_action, keys, KGlobalAccel::NoAutoloading);
+    if (m_sequence.isEmpty()) {
+        KGlobalAccel::self()->removeAllShortcuts(m_action);
+    } else {
+        const QList<QKeySequence> keys{m_sequence};
+        KGlobalAccel::self()->setDefaultShortcut(m_action, keys, KGlobalAccel::NoAutoloading);
+        KGlobalAccel::self()->setShortcut(m_action, keys, KGlobalAccel::NoAutoloading);
+    }
 
     const bool now = !KGlobalAccel::self()->shortcut(m_action).isEmpty();
     qCInfo(keaLog) << "hotkey registered:" << m_sequence.toString()

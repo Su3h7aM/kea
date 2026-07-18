@@ -272,19 +272,16 @@ Kirigami.ApplicationWindow {
                 KQuickControls.KeySequenceItem {
                     id: hotkeyItem
                     Kirigami.FormData.label: i18nc("@label", "Hotkey")
+                    // Declarative only — do not assign keySequence imperatively
+                    // (that would break this binding). User edits go out via the signal.
                     keySequence: _hotkey ? _hotkey.sequence : ""
                     // Multi-key chords are unusual for hold-to-talk; keep single sequence.
                     multiKeyShortcutsAllowed: false
                     onKeySequenceModified: {
                         if (!_settings)
                             return
+                        // Empty sequence = hotkey cleared/disabled (not reset to default).
                         _settings.hotkeySequence = hotkeyItem.keySequence
-                    }
-                    Connections {
-                        target: _hotkey
-                        function onSequenceChanged() {
-                            hotkeyItem.keySequence = _hotkey.sequence
-                        }
                     }
                 }
 
