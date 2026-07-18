@@ -16,7 +16,7 @@
 
 **Kea** is a system-wide voice dictation application for KDE Plasma on Wayland. Place your cursor in any text field, hold a global push-to-talk hotkey, speak, and transcribed text is committed into the focused field — entirely on-device, with no cloud dependency and no audio leaving the process.
 
-Speech recognition is powered by **parakeet.cpp**, the C++/ggml inference port of NVIDIA's Parakeet ASR models. Kea supports **both streaming and offline** models: streaming models feed PCM live and emit finalized increments as you speak; offline models (the default) buffer while the hotkey is held and transcribe on release. Mode is auto-detected from the loaded model.
+Speech recognition is powered by **parakeet.cpp**, the C++/ggml inference port of NVIDIA's Parakeet ASR models. Kea supports **both streaming and offline** models: streaming models feed PCM live and emit finalized increments as you speak; offline models (the default) buffer while the session is active and transcribe when it ends. Mode is auto-detected from the loaded model.
 
 The UI is a **Kirigami** + QML application with a system-tray presence and a settings window. Audio is captured via **Qt6 Multimedia** (`QAudioSource`) on PipeWire hosts. Transcribed text is injected using the Wayland **`input-method-unstable-v1`** protocol — what KWin implements (not v2).
 
@@ -39,7 +39,7 @@ The hard problem is not recognition — it is **injecting text into arbitrary ap
 ### Goals (v1)
 
 - **G1.** Global push-to-talk (and optional toggle) hotkey that starts/stops dictation from any focused text field.
-- **G2.** On-device transcription with low end-to-end latency. Streaming models show words as they finalize; offline models commit on release. Both are first-class.
+- **G2.** On-device transcription with low end-to-end latency. Streaming models show words as they finalize; offline models commit when the session ends. Both are first-class.
 - **G3.** On-device inference only — no network calls for recognition, no audio upload, no account. (Model download is optional first-run convenience.)
 - **G4.** Two selectable backends: **CPU** and **Vulkan**, chosen in settings.
 - **G5.** System-tray icon + a Kirigami settings window (hotkey, model path, backend, activation mode).
@@ -93,9 +93,9 @@ The hard problem is not recognition — it is **injecting text into arbitrary ap
 
 **Data flow:**
 1. User loads a model (Start in the UI) → worker `dlopen`s the selected backend and `parakeet_capi_load`s the GGUF.
-2. Hotkey-down → controller opens capture + `beginSession` on the worker.
+2. Activation start (PTT press or toggle on) → controller opens capture + `beginSession` on the worker.
 3. Session mode: if `stream_begin` succeeds → **streaming** (feed PCM live, commit increments); else → **offline** (buffer PCM, transcribe on finalize).
-4. Hotkey-up → stop capture → finalize/transcribe tail → commit via `TextCommitter` → free session.
+4. Activation stop (PTT release or toggle off) → stop capture → finalize/transcribe tail → commit via `TextCommitter` → free session.
 5. Stop in the UI unloads the model so backend/path settings can change.
 
 ---
@@ -199,13 +199,13 @@ App ID / QML URI / AppStream id: **`io.github.su3h7am.kea`** (not `org.kde.*` �
 
 `DictationController` drives the pipeline (exposed to QML). States:
 
-```
+```text
                     loadModel
   Idle ──────────────────────▶ LoadingModel ──fail──▶ Error / Idle
    │                                │
    │ start (model ready)            ok
    ▼                                │
- Starting ──session ok──▶ Listening ──hotkey-up / stop──▶ Draining ──▶ Idle
+ Starting ──session ok──▶ Listening ──activation stop──▶ Draining ──▶ Idle
    │                         │
    │ fail                    │ cancel (tray)
    ▼                         ▼
