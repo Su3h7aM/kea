@@ -227,8 +227,9 @@ Kirigami.ApplicationWindow {
                 Controls.CheckBox {
                     Kirigami.FormData.label: i18nc("@label", "Clipboard (last resort)")
                     text: i18nc("@option",
-                        "If no better insert path works (e.g. some terminals), " +
-                        "copy the transcript so you can paste")
+                        "If the focused app never opens a text-input session " +
+                        "(some terminals), copy the transcript so you can paste. " +
+                        "Qt/GTK/Firefox usually insert via the compositor input method.")
                     checked: _settings ? _settings.clipboardFallback : true
                     onToggled: {
                         if (_settings)

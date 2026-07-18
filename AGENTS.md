@@ -132,10 +132,13 @@ The smoke test loads a backend and transcribes a WAV:
   session must run on the same worker thread. Never share a context across threads.
 - **One input method per Wayland seat.** Kea occupies that slot; it cannot coexist with
   an already-running IME (fcitx5/IBus). Detect and warn at startup.
-- **KWin uses `input_method_unstable_v1`, not v2.** All insertion code targets v1
+- **KWin uses `input_method_unstable_v1`, not v2.** Kea’s host-side insert protocol is v1
   (`commit_string(serial, text)` / `preedit_string`; serial comes from `commit_state`).
-- **All commits go through `TextCommitter`.** Never call the Wayland context directly
-  from the controller. Serial bookkeeping and skip-when-inactive live only there.
+  Target apps use **text-input** v2/v3 (Qt, GTK, Firefox, …); KWin bridges those into our
+  single IM context. Do not try to implement GTK/Qt IM modules inside Kea for “protocol
+  coverage” — that is a different (in-process) architecture.
+- **All commits go through `InsertionRouter` → `TextCommitter` (IM) / last-resort clipboard.**
+  Never call the Wayland context directly from the controller. Clipboard is last, never first.
 - **Two `.so` variants share an identical C-API.** CPU and Vulkan libs are selected at
   runtime via `dlopen`. CPU must remain a working fallback when Vulkan is unavailable.
 

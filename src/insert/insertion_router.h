@@ -4,15 +4,30 @@
  *
  * InsertionRouter — deliver finalized text into the focused client.
  *
- * Ordered insert chain (stop at first success):
+ * ## Why one IM protocol covers Qt, GTK, Firefox, etc. on Plasma
  *
- *   1. Input method (KWin input_method_unstable_v1 → commit_string)
- *      Prefer this: true caret insert when the client enables text-input.
- *   2. (Future) optional inject backends — virtual key / portal / helper tool.
- *      Slot in *before* clipboard when implemented. Not client-toolkit IMs
- *      (GTK/Qt IM modules live inside the target app; Kea cannot implement those).
- *   3. Clipboard — always the *last* fallback: recover text for paste when
- *      nothing else can insert. Never preferred over a real insert path.
+ * Wayland splits text entry into two sides:
+ *
+ *   - Target apps (Qt, GTK4, Firefox, Kitty, …) implement **text-input**
+ *     (v2 and/or v3). They *receive* commits; they do not host the IME.
+ *   - Kea is the seat **input method**. On KWin that is only
+ *     **input_method_unstable_v1**. KWin bridges every enabled text-input
+ *     client (v2/v3, including GTK and Qt) into that single IM context.
+ *
+ * So Kea does *not* implement “the GTK protocol” or “the Qt protocol” as
+ * separate host backends. Supporting GTK/Qt/Firefox on Plasma means:
+ *   (a) speaking KWin’s IM-v1 correctly, and
+ *   (b) the focused app enabling text-input so KWin activates us.
+ *
+ * Toolkit IM *modules* (GTK_IM_MODULE / QT_IM_MODULE plugins loaded *into*
+ * the target process) are a different architecture (fcitx5-style). They are
+ * not additional Wayland protocols Kea can bind from its own process.
+ *
+ * ## Ordered insert chain (stop at first success)
+ *
+ *   1. Input method (KWin IM-v1 → commit_string) — preferred caret insert.
+ *   2. (Future) optional inject backends — before clipboard only.
+ *   3. Clipboard — always the *last* fallback.
  */
 #pragma once
 
