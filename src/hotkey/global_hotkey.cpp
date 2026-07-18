@@ -65,9 +65,10 @@ void GlobalHotkey::setSequence(const QKeySequence &seq)
 
 void GlobalHotkey::reregister()
 {
-    // Standard KDE pattern: setDefaultShortcut seeds the System Settings
-    // default; setShortcut (without NoAutoloading) respects any user override
-    // from System Settings while registering our key on first run.
+    // setDefaultShortcut seeds the System Settings default entry.
+    // setShortcut with NoAutoloading forces *our* sequence: the user edits it
+    // in Kea's KeySequenceItem (or clears it), not via a System Settings
+    // override that would be silently re-applied on next reregister().
     if (m_sequence.isEmpty()) {
         KGlobalAccel::self()->removeAllShortcuts(m_action);
     } else {
