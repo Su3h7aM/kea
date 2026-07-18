@@ -81,7 +81,6 @@ int main(int argc, char *argv[])
     kea::TextCommitter committer;
     kea::InsertionRouter inserter;
     inserter.setTextCommitter(&committer);
-    inserter.setClipboardFallbackEnabled(settings.clipboardFallback());
     kea::GlobalHotkey hotkey;
     hotkey.setSequence(settings.hotkey());
 
@@ -111,9 +110,6 @@ int main(int argc, char *argv[])
 
     QObject::connect(&settings, &kea::AppSettings::hotkeyChanged, &hotkey, [&]() {
         hotkey.setSequence(settings.hotkey());
-    });
-    QObject::connect(&settings, &kea::AppSettings::clipboardFallbackChanged, &inserter, [&]() {
-        inserter.setClipboardFallbackEnabled(settings.clipboardFallback());
     });
 
     QObject::connect(&inputMethod, &QWaylandClientExtension::activeChanged, &tray, [&]() {

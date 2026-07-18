@@ -4,84 +4,55 @@
  *
  * InsertionRouter — deliver finalized text into the focused client.
  *
- * ## Why one IM protocol covers Qt, GTK, Firefox, etc. on Plasma
+ * Fixed order (always; not user-configurable):
  *
- * Wayland splits text entry into two sides:
+ *   1. Input method (KWin input_method_unstable_v1 → commit_string)
+ *   2. fake_input keysyms (org_kde_kwin_fake_input) when IM has no context
+ *   3. Clipboard last resort (always attempted if 1–2 fail)
  *
- *   - Target apps (Qt, GTK4, Firefox, Kitty, …) implement **text-input**
- *     (v2 and/or v3). They *receive* commits; they do not host the IME.
- *   - Kea is the seat **input method**. On KWin that is only
- *     **input_method_unstable_v1**. KWin bridges every enabled text-input
- *     client (v2/v3, including GTK and Qt) into that single IM context.
- *
- * So Kea does *not* implement “the GTK protocol” or “the Qt protocol” as
- * separate host backends. Supporting GTK/Qt/Firefox on Plasma means:
- *   (a) speaking KWin’s IM-v1 correctly, and
- *   (b) the focused app enabling text-input so KWin activates us.
- *
- * Toolkit IM *modules* (GTK_IM_MODULE / QT_IM_MODULE plugins loaded *into*
- * the target process) are a different architecture (fcitx5-style). They are
- * not additional Wayland protocols Kea can bind from its own process.
- *
- * ## Ordered insert chain (stop at first success)
- *
- *   1. Input method (KWin IM-v1 → commit_string) — preferred caret insert.
- *   2. (Future) optional inject backends — before clipboard only.
- *   3. Clipboard — always the *last* fallback.
- *
- * ## Lessons from fcitx5 waylandim (study only; not a dependency)
- *
- * fcitx5 runs separate frontends per protocol (IM-v1 for KWin, IM-v2 + optional
- * virtual-keyboard for wlroots), chunks commit_string under 4000 UTF-8 bytes,
- * tracks commit_state serial, and uses content_type/surrounding_text. Kea
- * mirrors the KWin-relevant pieces (v1 + chunking + content_type logging);
- * IM-v2 remains future if KWin ever exposes it.
+ * Target apps use text-input v2/v3; KWin bridges them to IM-v1. Toolkit IM
+ * modules are not implemented in-process.
  */
 #pragma once
 
 #include <QObject>
 #include <QString>
+#include <memory>
 
 namespace kea {
 
+class FakeInputClient;
 class TextCommitter;
 
 class InsertionRouter : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(bool clipboardFallbackEnabled READ clipboardFallbackEnabled
-                   WRITE setClipboardFallbackEnabled NOTIFY clipboardFallbackEnabledChanged)
     Q_PROPERTY(bool canUseInputMethod READ canUseInputMethod NOTIFY canUseInputMethodChanged)
 
 public:
-    /// Which step of the chain delivered the text (or None if nothing did).
     enum class Path {
         None = 0,
         InputMethod = 1,
-        /// Reserved for a future mid-chain inject backend (before clipboard).
-        Inject = 2,
-        Clipboard = 3, ///< last resort only
+        FakeInput = 2,
+        Clipboard = 3,
     };
     Q_ENUM(Path)
 
     struct Result {
-        bool delivered = false; ///< true if any chain step accepted the text
+        bool delivered = false;
         Path path = Path::None;
-        QString detail; ///< error or human status (empty on pure IM success)
+        QString detail;
     };
 
     explicit InsertionRouter(QObject *parent = nullptr);
+    ~InsertionRouter() override;
 
     void setTextCommitter(TextCommitter *committer);
     TextCommitter *textCommitter() const { return m_committer; }
 
-    /// When true (default), step 3 (clipboard) runs if earlier steps fail.
-    bool clipboardFallbackEnabled() const { return m_clipboardFallback; }
-    void setClipboardFallbackEnabled(bool enabled);
-
     bool canUseInputMethod() const;
 
-    /// Run the insert chain: IM → (future inject) → clipboard (if enabled).
+    /// Run IM → fake_input → clipboard until one succeeds.
     Result insertText(const QString &text);
 
     bool setPreedit(const QString &text);
@@ -91,18 +62,16 @@ public:
     Path lastPath() const { return m_lastPath; }
 
 Q_SIGNALS:
-    void clipboardFallbackEnabledChanged();
     void canUseInputMethodChanged(bool can);
     void inserted(Path path, const QString &text);
 
 private:
-    /// Step 1.
     bool tryInputMethod(const QString &text, QString *errorOut);
-    /// Step 3 (last).
+    bool tryFakeInput(const QString &text, QString *errorOut);
     bool tryClipboardLastResort(const QString &text, QString *errorOut);
 
     TextCommitter *m_committer = nullptr;
-    bool m_clipboardFallback = true;
+    std::unique_ptr<FakeInputClient> m_fakeInput;
     QString m_lastDetail;
     Path m_lastPath = Path::None;
 };

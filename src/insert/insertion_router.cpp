@@ -8,14 +8,18 @@
 #include <QDebug>
 #include <QGuiApplication>
 
+#include "fake_input.h"
 #include "text_committer.h"
 
 namespace kea {
 
 InsertionRouter::InsertionRouter(QObject *parent)
     : QObject(parent)
+    , m_fakeInput(std::make_unique<FakeInputClient>(this))
 {
 }
+
+InsertionRouter::~InsertionRouter() = default;
 
 void InsertionRouter::setTextCommitter(TextCommitter *committer)
 {
@@ -33,15 +37,6 @@ void InsertionRouter::setTextCommitter(TextCommitter *committer)
     Q_EMIT canUseInputMethodChanged(canUseInputMethod());
 }
 
-void InsertionRouter::setClipboardFallbackEnabled(bool enabled)
-{
-    if (m_clipboardFallback == enabled) {
-        return;
-    }
-    m_clipboardFallback = enabled;
-    Q_EMIT clipboardFallbackEnabledChanged();
-}
-
 bool InsertionRouter::canUseInputMethod() const
 {
     return m_committer && m_committer->canCommit();
@@ -57,9 +52,6 @@ bool InsertionRouter::tryInputMethod(const QString &text, QString *errorOut)
         return false;
     }
     if (!m_committer->canCommit()) {
-        // KWin only activates our IM context when the focused client enables
-        // text-input (v2/v3). No context ⇒ client never opened a text field
-        // session (common with some terminals / custom widgets).
         if (errorOut) {
             *errorOut = QStringLiteral(
                 "no text-input context (focused app did not enable text-input / IM)");
@@ -73,7 +65,6 @@ bool InsertionRouter::tryInputMethod(const QString &text, QString *errorOut)
     if (m_committer->commitText(text)) {
         return true;
     }
-    // Context was live but commit still failed (torn down mid-call, etc.).
     const QString err = m_committer->lastError().isEmpty()
         ? QStringLiteral("commit_string failed with live context")
         : m_committer->lastError();
@@ -85,6 +76,30 @@ bool InsertionRouter::tryInputMethod(const QString &text, QString *errorOut)
     return false;
 }
 
+bool InsertionRouter::tryFakeInput(const QString &text, QString *errorOut)
+{
+    if (!m_fakeInput) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("fake_input not constructed");
+        }
+        return false;
+    }
+    if (!m_fakeInput->protocolAvailable()) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("fake_input protocol not available");
+        }
+        qWarning() << "Kea: insert fake_input skipped — protocol not bound";
+        return false;
+    }
+    if (!m_fakeInput->typeText(text)) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("fake_input could not type text (no keysym or denied)");
+        }
+        return false;
+    }
+    return true;
+}
+
 bool InsertionRouter::tryClipboardLastResort(const QString &text, QString *errorOut)
 {
     QClipboard *clip = QGuiApplication::clipboard();
@@ -94,7 +109,6 @@ bool InsertionRouter::tryClipboardLastResort(const QString &text, QString *error
         }
         return false;
     }
-    // Clipboard mode for Ctrl+V; primary selection for middle-click paste.
     clip->setText(text, QClipboard::Clipboard);
     clip->setText(text, QClipboard::Selection);
     if (clip->text(QClipboard::Clipboard) != text) {
@@ -117,9 +131,8 @@ InsertionRouter::Result InsertionRouter::insertText(const QString &text)
         return r;
     }
 
-    // --- Step 1: input method (preferred) ---------------------------------
-    QString stepErr;
-    if (tryInputMethod(text, &stepErr)) {
+    QString err1;
+    if (tryInputMethod(text, &err1)) {
         r.delivered = true;
         r.path = Path::InputMethod;
         m_lastPath = r.path;
@@ -128,54 +141,46 @@ InsertionRouter::Result InsertionRouter::insertText(const QString &text)
         Q_EMIT inserted(r.path, text);
         return r;
     }
-    const QString priorFailure = stepErr;
-    qInfo().nospace() << "Kea: insert chain continuing after IM miss — reason=\""
-                      << priorFailure << "\" chars=" << text.size()
-                      << " clipboardFallback=" << m_clipboardFallback;
+    qInfo().nospace() << "Kea: insert chain step1 IM failed — \"" << err1
+                      << "\" chars=" << text.size() << " → trying fake_input";
 
-    // --- Step 2: future inject backends (key inject / portal / helper) ----
-    // Intentionally empty. When added, try them here and return Path::Inject
-    // on success. Do not put clipboard above this step.
+    QString err2;
+    if (tryFakeInput(text, &err2)) {
+        r.delivered = true;
+        r.path = Path::FakeInput;
+        m_lastPath = r.path;
+        m_lastDetail.clear();
+        qInfo().nospace() << "Kea: insert path=fake_input chars=" << text.size();
+        Q_EMIT inserted(r.path, text);
+        return r;
+    }
+    qInfo().nospace() << "Kea: insert chain step2 fake_input failed — \"" << err2
+                      << "\" chars=" << text.size() << " → trying clipboard";
 
-    // --- Step 3: clipboard (last resort only) -----------------------------
-    if (!m_clipboardFallback) {
-        r.delivered = false;
-        r.path = Path::None;
-        r.detail = priorFailure;
+    QString err3;
+    if (tryClipboardLastResort(text, &err3)) {
+        r.delivered = true;
+        r.path = Path::Clipboard;
+        r.detail = QStringLiteral(
+            "Could not insert into the focused app — transcript is on the clipboard. "
+            "Paste with Ctrl+V (or Shift+Insert in many terminals).");
         m_lastPath = r.path;
         m_lastDetail = r.detail;
-        qWarning().nospace()
-            << "Kea: insert failed — IM unavailable and clipboard last-resort is OFF. "
-            << "reason=\"" << priorFailure << "\" chars=" << text.size();
+        qInfo().nospace()
+            << "Kea: insert path=clipboard (last resort) chars=" << text.size()
+            << " im=\"" << err1 << "\" fake_input=\"" << err2 << "\"";
+        Q_EMIT inserted(r.path, text);
         return r;
     }
 
-    QString clipErr;
-    if (!tryClipboardLastResort(text, &clipErr)) {
-        r.delivered = false;
-        r.path = Path::None;
-        r.detail = QStringLiteral("%1; clipboard failed: %2").arg(priorFailure, clipErr);
-        m_lastPath = r.path;
-        m_lastDetail = r.detail;
-        qWarning().nospace()
-            << "Kea: insert failed — IM unavailable and clipboard write failed. "
-            << "im=\"" << priorFailure << "\" clip=\"" << clipErr
-            << "\" chars=" << text.size();
-        return r;
-    }
-
-    r.delivered = true;
-    r.path = Path::Clipboard;
-    r.detail = QStringLiteral(
-        "Could not insert into the focused app — transcript is on the clipboard "
-        "(last-resort fallback). Paste with Ctrl+V (or Shift+Insert in many terminals).");
+    r.delivered = false;
+    r.path = Path::None;
+    r.detail = QStringLiteral("IM: %1; fake_input: %2; clipboard: %3")
+                   .arg(err1, err2, err3);
     m_lastPath = r.path;
     m_lastDetail = r.detail;
-    qInfo().nospace()
-        << "Kea: insert path=clipboard (last resort) chars=" << text.size()
-        << " — direct caret insert needs a text-input session; "
-        << "IM reason=\"" << priorFailure << "\"";
-    Q_EMIT inserted(r.path, text);
+    qWarning().nospace() << "Kea: insert failed all paths — " << r.detail
+                         << " chars=" << text.size();
     return r;
 }
 

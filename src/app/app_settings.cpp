@@ -48,7 +48,6 @@ void AppSettings::load()
     m_modelPath = s.value(QStringLiteral("modelPath"), defaultModelPath()).toString();
     m_backend = s.value(QStringLiteral("backend"), 0).toInt(); // default CPU
     m_activationMode = s.value(QStringLiteral("activationMode"), 0).toInt();
-    m_clipboardFallback = s.value(QStringLiteral("clipboardFallback"), true).toBool();
     m_onboardingDone = s.value(QStringLiteral("onboardingDone"), false).toBool();
     // Missing key → factory default. Present-but-empty → user cleared (disabled).
     if (!s.contains(QStringLiteral("hotkey"))) {
@@ -72,7 +71,6 @@ void AppSettings::load()
     }
     qCInfo(keaLog) << "settings loaded: model=" << m_modelPath
                     << "backend=" << m_backend
-                    << "clipboardFallback=" << m_clipboardFallback
                     << "onboardingDone=" << m_onboardingDone;
 }
 
@@ -83,7 +81,6 @@ void AppSettings::save() const
     s.setValue(QStringLiteral("backend"), m_backend);
     s.setValue(QStringLiteral("hotkey"), m_hotkey.toString(QKeySequence::PortableText));
     s.setValue(QStringLiteral("activationMode"), m_activationMode);
-    s.setValue(QStringLiteral("clipboardFallback"), m_clipboardFallback);
     s.setValue(QStringLiteral("onboardingDone"), m_onboardingDone);
 }
 
@@ -140,16 +137,6 @@ void AppSettings::setActivationMode(int mode)
     m_activationMode = mode;
     save();
     Q_EMIT activationModeChanged();
-}
-
-void AppSettings::setClipboardFallback(bool enabled)
-{
-    if (enabled == m_clipboardFallback) {
-        return;
-    }
-    m_clipboardFallback = enabled;
-    save();
-    Q_EMIT clipboardFallbackChanged();
 }
 
 void AppSettings::setOnboardingDone(bool done)

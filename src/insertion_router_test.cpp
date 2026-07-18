@@ -2,8 +2,8 @@
  * SPDX-FileCopyrightText: 2026 Kea contributors
  * SPDX-License-Identifier: MIT
  *
- * Headless tests for InsertionRouter (IM + clipboard fallback).
- * Uses QGuiApplication for QClipboard; no compositor required.
+ * Headless tests for InsertionRouter (IM → fake_input → clipboard).
+ * Without a compositor, fake_input is unavailable; clipboard still works.
  */
 #include <cstdio>
 #include <cstdlib>
@@ -54,7 +54,6 @@ int main(int argc, char **argv)
         c.setContext(&mock);
         InsertionRouter r;
         r.setTextCommitter(&c);
-        r.setClipboardFallbackEnabled(true);
         const auto res = r.insertText(QStringLiteral("hello"));
         check(res.delivered, "delivered");
         check(res.path == InsertionRouter::Path::InputMethod, "path=IM");
@@ -62,48 +61,33 @@ int main(int argc, char **argv)
               "mock got hello");
     }
 
-    std::printf("[router] clipboard fallback when no context\n");
+    std::printf("[router] clipboard when IM and fake_input unavailable\n");
     {
         TextCommitter c;
         InsertionRouter r;
         r.setTextCommitter(&c);
-        r.setClipboardFallbackEnabled(true);
+        // Offscreen / no KWin: fake_input not bound → clipboard.
         const auto res = r.insertText(QStringLiteral("from-mic"));
         check(res.delivered, "delivered via clipboard");
         check(res.path == InsertionRouter::Path::Clipboard, "path=clipboard last resort");
         check(QGuiApplication::clipboard()->text() == QStringLiteral("from-mic"),
               "clipboard has text");
         check(!res.detail.isEmpty(), "status detail non-empty");
-        check(res.detail.contains(QStringLiteral("last-resort"))
-                  || res.detail.contains(QStringLiteral("clipboard")),
-              "detail mentions last-resort/clipboard");
     }
 
-    std::printf("[router] IM preferred over clipboard when both available\n");
+    std::printf("[router] IM preferred over later paths when both available\n");
     {
         TextCommitter c;
         MockContext mock;
         c.setContext(&mock);
         InsertionRouter r;
         r.setTextCommitter(&c);
-        r.setClipboardFallbackEnabled(true);
         QGuiApplication::clipboard()->clear();
         const auto res = r.insertText(QStringLiteral("prefer-im"));
-        check(res.path == InsertionRouter::Path::InputMethod, "uses IM not clipboard");
+        check(res.path == InsertionRouter::Path::InputMethod, "uses IM first");
         check(mock.commits.size() == 1, "IM commit happened");
-        // Clipboard must not be the chosen path when IM works.
-        check(res.path != InsertionRouter::Path::Clipboard, "clipboard is not used");
-    }
-
-    std::printf("[router] fail hard when last-resort clipboard disabled and no context\n");
-    {
-        TextCommitter c;
-        InsertionRouter r;
-        r.setTextCommitter(&c);
-        r.setClipboardFallbackEnabled(false);
-        const auto res = r.insertText(QStringLiteral("lost"));
-        check(!res.delivered, "not delivered");
-        check(res.path == InsertionRouter::Path::None, "path=none");
+        check(res.path != InsertionRouter::Path::Clipboard, "not clipboard");
+        check(res.path != InsertionRouter::Path::FakeInput, "not fake_input");
     }
 
     std::printf("[router] empty text is success no-op\n");

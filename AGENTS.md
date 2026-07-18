@@ -137,8 +137,9 @@ The smoke test loads a backend and transcribes a WAV:
   Target apps use **text-input** v2/v3 (Qt, GTK, Firefox, …); KWin bridges those into our
   single IM context. Do not try to implement GTK/Qt IM modules inside Kea for “protocol
   coverage” — that is a different (in-process) architecture.
-- **All commits go through `InsertionRouter` → `TextCommitter` (IM) / last-resort clipboard.**
-  Never call the Wayland context directly from the controller. Clipboard is last, never first.
+- **All inserts go through `InsertionRouter` in fixed order:** (1) input-method-v1,
+  (2) `org_kde_kwin_fake_input` keysyms, (3) clipboard. Not user-configurable.
+  Never call the Wayland context directly from the controller.
 - **Two `.so` variants share an identical C-API.** CPU and Vulkan libs are selected at
   runtime via `dlopen`. CPU must remain a working fallback when Vulkan is unavailable.
 
