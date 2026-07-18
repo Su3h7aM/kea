@@ -353,8 +353,20 @@ void DictationController::onTextFinalized(const QString &text, int /*eouMask*/)
     if (text.isEmpty() || m_state == State::Idle) {
         return;
     }
-    if (m_committer) {
-        m_committer->commitText(text);
+    if (!m_committer) {
+        return;
+    }
+    if (!m_committer->commitText(text)) {
+        // Do not enter Error state mid-session — insertion can fail simply
+        // because no text field is focused (terminals, empty seat, …).
+        const QString detail = m_committer->lastError().isEmpty()
+            ? QStringLiteral("no active text field")
+            : m_committer->lastError();
+        qCWarning(keaLog) << "commit failed (streaming increment):" << detail
+                           << "text=" << text;
+        m_lastError = QStringLiteral("Could not insert text (%1)").arg(detail);
+        Q_EMIT lastErrorChanged();
+        setStatus(m_lastError);
     }
 }
 
@@ -416,10 +428,23 @@ void DictationController::onSessionFinished(const QString &text, const QString &
             QMetaObject::invokeMethod(
                 this,
                 [this, copy]() {
-                    if (m_committer) {
-                        m_committer->commitText(copy);
-                        m_committer->clearPreedit();
+                    if (!m_committer) {
+                        return;
                     }
+                    if (!m_committer->commitText(copy)) {
+                        const QString detail = m_committer->lastError().isEmpty()
+                            ? QStringLiteral("no active text field")
+                            : m_committer->lastError();
+                        qCWarning(keaLog) << "commit failed (session finished):" << detail
+                                           << "text=" << copy;
+                        m_lastError =
+                            QStringLiteral("Could not insert text (%1)").arg(detail);
+                        Q_EMIT lastErrorChanged();
+                        // Keep the transcript visible so the user can recover it.
+                        setStatus(QStringLiteral("Insert failed — transcript: %1")
+                                      .arg(copy));
+                    }
+                    m_committer->clearPreedit();
                 },
                 Qt::QueuedConnection);
         }
