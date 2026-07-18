@@ -1,17 +1,17 @@
 # Kea
 
-> On-device, streaming voice dictation for Linux and KDE Plasma (Wayland).
+> On-device voice dictation for Linux and KDE Plasma (Wayland).
 
 Kea is a system-wide dictation app in the spirit of [Wispr Flow](https://wisprflow.ai/),
 but local-first, open source, and native to the Linux desktop. Place your cursor in
-any text field, hold a global push-to-talk hotkey, speak, and your words stream into
-the focused field — transcribed entirely on your own machine.
+any text field, hold a global push-to-talk hotkey, speak, and transcribed text is
+committed into the focused field — entirely on your own machine.
 
 ## Status
 
-**Pre-alpha (Phases 0–4 scaffolded).** The end-to-end control path works: hotkey → mic
-→ parakeet streaming → Wayland text insertion. You still need a streaming GGUF model
-and a free input-method seat on Plasma Wayland. Design details live in
+**Pre-alpha (Phases 0–4 scaffolded).** The end-to-end path works: hotkey → mic →
+parakeet (streaming or offline) → Wayland text insertion. You need a GGUF model and a
+free input-method seat on Plasma Wayland. Design details live in
 [RFC 0001](docs/rfc-0001-kea.md).
 
 ## Stack
@@ -19,9 +19,9 @@ and a free input-method seat on Plasma Wayland. Design details live in
 | Concern | Technology |
 | --- | --- |
 | UI | **Kirigami** + QML on **Qt 6** |
-| Speech recognition | **[parakeet.cpp](https://github.com/mudler/parakeet.cpp)** (streaming + EOU) |
+| Speech recognition | **[parakeet.cpp](https://github.com/mudler/parakeet.cpp)** (streaming + offline) |
 | Inference backends | **CPU** and **Vulkan** (runtime `dlopen`) |
-| Audio capture | **PipeWire** via Qt 6 Multimedia |
+| Audio capture | **PipeWire** hosts via Qt 6 Multimedia |
 | Text insertion | **Wayland `input-method-unstable-v1`** (KWin) |
 | Global hotkey | `KGlobalAccel` (default **Ctrl+Shift+D**) |
 | Tray | `KStatusNotifierItem` |
@@ -47,10 +47,11 @@ cmake --build build
 ### First run
 
 1. Open Kea from the tray (or the window that appears on first launch).
-2. **Download default model** (or place a streaming `.gguf` under
-   `~/.local/share/kea/models/` and set the path).
+2. **Download the default model** (offline TDT) or place a `.gguf` under
+   `~/.local/share/kea/models/` and set the path. Streaming models also work.
 3. On Plasma **Wayland**, ensure no other IME (fcitx5/IBus) owns the seat.
-4. Focus a text field, hold **Ctrl+Shift+D**, speak, release to commit.
+4. Click **Start** to load the model, focus a text field, hold **Ctrl+Shift+D**,
+   speak, release to commit.
 
 ### Tests
 
