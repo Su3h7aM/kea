@@ -164,26 +164,26 @@ DictationController::~DictationController()
         m_worker = nullptr;
     }
     if (m_ownTransformer) {
-        // Unload on the transform thread before quitting it. deleteLater after
-        // QThread::finished never runs (no event loop), which caused
-        // "pure virtual method called" / SIGABRT on exit.
+        // Tear down on the transform thread's event loop (no moveToThread from
+        // the wrong thread — that caused pure-virtual/SIGABRT on quit).
         if (m_transformWorker && m_transformThread.isRunning()) {
             QMetaObject::invokeMethod(m_transformWorker, "unloadModel",
                                       Qt::BlockingQueuedConnection);
-        }
-        m_transformThread.quit();
-        m_transformThread.wait(5000);
-        // Thread is stopped — safe to delete from this thread.
-        if (m_transformWorker) {
-            m_transformWorker->moveToThread(QThread::currentThread());
+            // deleteLater is processed on the worker thread before quit.
+            QMetaObject::invokeMethod(m_transformWorker, "deleteLater",
+                                      Qt::QueuedConnection);
+            if (m_transformer) {
+                QMetaObject::invokeMethod(m_transformer, "deleteLater",
+                                          Qt::QueuedConnection);
+            }
+            m_transformThread.quit();
+            m_transformThread.wait(5000);
+        } else {
             delete m_transformWorker;
-            m_transformWorker = nullptr;
-        }
-        if (m_transformer) {
-            m_transformer->moveToThread(QThread::currentThread());
             delete m_transformer;
-            m_transformer = nullptr;
         }
+        m_transformWorker = nullptr;
+        m_transformer = nullptr;
     } else if (m_transformWorker) {
         delete m_transformWorker;
         m_transformWorker = nullptr;

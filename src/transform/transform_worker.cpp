@@ -32,8 +32,7 @@ void TransformWorker::loadModel(const QString &path)
                                      : m_transformer->lastError());
         return;
     }
-    qCInfo(keaLog) << "transform model loaded" << path
-                    << "backend=" << m_transformer->backendName();
+    qCInfo(keaLog) << "LLM ready" << path;
     Q_EMIT modelReady(true, QString());
 }
 
@@ -56,18 +55,22 @@ void TransformWorker::transform(const QString &utterance, int styleInt, quint64 
         return;
     }
     if (!m_transformer->isReady()) {
-        // Fail open: return raw ASR rather than dropping the utterance.
+        qCWarning(keaLog) << "ASR:" << utterance;
+        qCWarning(keaLog) << "LLM: (not ready — using ASR)";
         Q_EMIT finished(requestId, utterance,
                         QStringLiteral("LLM not ready — using raw transcript"));
         return;
     }
     const TransformStyle style = TextTransformer::styleFromInt(styleInt);
-    qCInfo(keaLog) << "transform start style=" << TextTransformer::styleName(style)
-                    << "chars=" << utterance.size();
     const QString out = m_transformer->transform(utterance, style);
     const QString err = m_transformer->lastError();
-    qCInfo(keaLog) << "transform done outChars=" << out.size()
-                    << (err.isEmpty() ? "" : qPrintable(err));
+    // Always log both sides so we can compare without digging llama spam.
+    qCInfo(keaLog).noquote() << "ASR: " << utterance;
+    qCInfo(keaLog).noquote() << "LLM: " << out
+                             << (err.isEmpty()
+                                     ? QString()
+                                     : QStringLiteral("  [") + err + QLatin1Char(']'));
+    qCInfo(keaLog) << "style=" << TextTransformer::styleName(style);
     Q_EMIT finished(requestId, out, err);
 }
 

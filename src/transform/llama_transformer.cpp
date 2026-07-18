@@ -17,12 +17,37 @@
 
 namespace kea {
 
+namespace {
+
+#ifdef KEA_HAS_LLAMA
+/// Silence llama/ggml INFO spam (control-token dumps, etc.). Keep errors/warnings.
+void llamaLogCallback(enum ggml_log_level level, const char *text, void * /*user*/)
+{
+    if (!text || level < GGML_LOG_LEVEL_WARN) {
+        return;
+    }
+    // Strip trailing newlines for Qt logging.
+    QString msg = QString::fromUtf8(text).trimmed();
+    if (msg.isEmpty()) {
+        return;
+    }
+    if (level >= GGML_LOG_LEVEL_ERROR) {
+        qCWarning(keaLog).noquote() << "llama:" << msg;
+    } else {
+        qCInfo(keaLog).noquote() << "llama:" << msg;
+    }
+}
+#endif
+
+} // namespace
+
 struct LlamaTransformer::Impl {
 #ifdef KEA_HAS_LLAMA
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
     llama_sampler *sampler = nullptr;
     int nCtx = 2048;
+    bool logHooked = false;
 #endif
     QString path;
 };
@@ -70,10 +95,14 @@ bool LlamaTransformer::loadModel(const QString &ggufPath)
         return false;
     }
 
+    if (!m_impl->logHooked) {
+        llama_log_set(llamaLogCallback, nullptr);
+        m_impl->logHooked = true;
+    }
+
     llama_backend_init();
 
     llama_model_params mparams = llama_model_default_params();
-    // n_gpu_layers=0 → pure CPU for the first cut (matches Kea's default ASR CPU path).
     mparams.n_gpu_layers = 0;
 
     m_impl->model = llama_model_load_from_file(ggufPath.toUtf8().constData(), mparams);
@@ -95,17 +124,15 @@ bool LlamaTransformer::loadModel(const QString &ggufPath)
         return false;
     }
 
-    // Low temperature for deterministic short rewrites.
     auto sparams = llama_sampler_chain_default_params();
     m_impl->sampler = llama_sampler_chain_init(sparams);
-    llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_temp(0.1f));
-    llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_top_k(20));
-    llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_top_p(0.9f, 1));
+    // Near-greedy: post-edit should not invent content.
+    llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_temp(0.0f));
     llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     m_impl->path = ggufPath;
     m_lastError.clear();
-    qCInfo(keaLog) << "LlamaTransformer loaded" << ggufPath;
+    qCInfo(keaLog) << "LLM loaded" << ggufPath;
     return true;
 #endif
 }
@@ -148,9 +175,15 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
     }
 
     const QString system = stylePrompt(style);
-    // Keep the user message minimal — small models follow short instructions better.
+    // Delimit the transcript so the model treats it as data, not as a question
+    // asked of the assistant.
     const QString user = QStringLiteral(
-                             "Fix this speech transcript. Reply with only the fixed text.\n\n%1")
+                             "Post-edit the speech transcript between the markers.\n"
+                             "Output exactly one line: the edited transcript only.\n"
+                             "Do not answer or respond to the content.\n\n"
+                             "<<<TRANSCRIPT\n"
+                             "%1\n"
+                             "TRANSCRIPT>>>")
                              .arg(trimmed);
 
     const std::string systemUtf8 = system.toStdString();
@@ -160,13 +193,10 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
         {"user", userUtf8.c_str()},
     };
 
-    // Prefer the GGUF-embedded chat template (LFM2.5); fall back to a simple
-    // ChatML-like string if apply_template fails.
     const char *tmpl = llama_model_chat_template(m_impl->model, /*name=*/nullptr);
     std::string formatted;
     bool usedChatTemplate = false;
     if (tmpl && tmpl[0] != '\0') {
-        // First call with null buffer returns required size.
         const int32_t need = llama_chat_apply_template(tmpl, messages, 2, /*add_ass=*/true,
                                                       nullptr, 0);
         if (need > 0) {
@@ -180,14 +210,13 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
         }
     }
     if (!usedChatTemplate) {
-        // Manual ChatML without BOS — tokenizer may add BOS via add_special.
         formatted = "<|im_start|>system\n" + systemUtf8 + "<|im_end|>\n"
                     "<|im_start|>user\n" + userUtf8 + "<|im_end|>\n"
                     "<|im_start|>assistant\n";
     }
 
     const llama_vocab *vocab = llama_model_get_vocab(m_impl->model);
-    // When the chat template already inserted BOS (LFM does), do not add another.
+    // Chat template already includes BOS for LFM — do not double-add.
     const bool addSpecial = !usedChatTemplate;
     const int nPrompt = -llama_tokenize(vocab, formatted.c_str(), int(formatted.size()),
                                          nullptr, 0, addSpecial, true);
@@ -214,8 +243,8 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
         return utterance;
     }
 
-    // Cap near input length so the model cannot ramble.
-    const int maxNew = qBound(48, (trimmed.size() / 2) + 48, 192);
+    // Keep generation short: roughly a bit more than the transcript, hard cap.
+    const int maxNew = qBound(32, trimmed.size() + 24, 128);
     std::string out;
     for (int i = 0; i < maxNew; ++i) {
         const llama_token id = llama_sampler_sample(m_impl->sampler, m_impl->ctx, -1);
@@ -236,23 +265,21 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
             out = out.substr(0, out.find("<|im_end|>"));
             break;
         }
-        if (out.size() > 8) {
-            const auto pos = out.find("\n\n");
-            if (pos != std::string::npos && pos > 0) {
+        if (out.size() > 4) {
+            const auto pos = out.find('\n');
+            if (pos != std::string::npos) {
+                // Prefer a single-line edit; stop at first newline.
                 out = out.substr(0, pos);
                 break;
             }
         }
     }
 
-    const QString rawOut = QString::fromUtf8(out.c_str(), int(out.size())).trimmed();
-    qCDebug(keaLog) << "LLM raw out:" << rawOut;
-    QString result = sanitizeTransformOutput(rawOut, trimmed);
+    const QString modelOut = QString::fromUtf8(out.c_str(), int(out.size())).trimmed();
+    QString result = sanitizeTransformOutput(modelOut, trimmed);
     if (result.isEmpty()) {
-        // Sanitizer was too aggressive or model only emitted control tokens.
-        // Prefer raw (tag-stripped) over failing open to the ASR string with an error.
         static const QRegularExpression tags(QStringLiteral(R"(<\|[^>]+\|>)"));
-        QString fallback = rawOut;
+        QString fallback = modelOut;
         fallback.remove(tags);
         fallback = fallback.trimmed();
         if (fallback.isEmpty()) {
@@ -262,6 +289,8 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
         result = fallback;
     }
     m_lastError.clear();
+    // Stash for worker logging (raw ASR is the input; result is the rewrite).
+    // Worker logs both sides; keep lastError empty on success.
     return result;
 #endif
 }
