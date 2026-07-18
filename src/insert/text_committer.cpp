@@ -37,7 +37,8 @@ bool TextCommitter::commitText(const QString &text)
     // between canCommit() and commitString() if focus changes mid-dictation.
     IInputContext *ctx = m_ctx;
     if (!ctx || !ctx->isValid()) {
-        setError(QStringLiteral("no active input context"));
+        setError(QStringLiteral(
+            "no text-input context (focused app did not enable text-input / IM)"));
         ++m_skippedCount;
         return false;
     }
@@ -67,7 +68,8 @@ bool TextCommitter::setPreedit(const QString &text)
 {
     IInputContext *ctx = m_ctx;
     if (!ctx || !ctx->isValid()) {
-        setError(QStringLiteral("no active input context"));
+        setError(QStringLiteral(
+            "no text-input context (focused app did not enable text-input / IM)"));
         ++m_skippedCount;
         return false;
     }
