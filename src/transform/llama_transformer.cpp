@@ -9,7 +9,10 @@
 #include <QRegularExpression>
 #include <QtGlobal>
 
+#include <cstdio>
+
 #ifdef KEA_HAS_LLAMA
+#include "ggml.h"
 #include "llama.h"
 #include <string>
 #include <vector>
@@ -20,24 +23,46 @@ namespace kea {
 namespace {
 
 #ifdef KEA_HAS_LLAMA
-/// Silence llama/ggml INFO spam (control-token dumps, etc.). Keep errors/warnings.
+/// Drop llama/ggml chatter. Only real warnings/errors.
 void llamaLogCallback(enum ggml_log_level level, const char *text, void * /*user*/)
 {
-    if (!text || level < GGML_LOG_LEVEL_WARN) {
+    // CONT (5) is used for multi-line continuations of INFO dumps — filter it.
+    if (!text || (level != GGML_LOG_LEVEL_WARN && level != GGML_LOG_LEVEL_ERROR)) {
         return;
     }
-    // Strip trailing newlines for Qt logging.
     QString msg = QString::fromUtf8(text).trimmed();
     if (msg.isEmpty()) {
         return;
     }
-    if (level >= GGML_LOG_LEVEL_ERROR) {
+    if (level == GGML_LOG_LEVEL_ERROR) {
         qCWarning(keaLog).noquote() << "llama:" << msg;
     } else {
-        qCInfo(keaLog).noquote() << "llama:" << msg;
+        qCWarning(keaLog).noquote() << "llama:" << msg;
     }
 }
+
+void installQuietLlamaLogs()
+{
+    static bool once = false;
+    if (once) {
+        return;
+    }
+    once = true;
+    llama_log_set(llamaLogCallback, nullptr);
+}
 #endif
+
+/// Always-visible compare lines (bypass Qt category filters).
+void logAsrLlm(const QString &asr, const QString &llm, const QString &note = {})
+{
+    std::fprintf(stderr, "[kea] ASR | %s\n", qPrintable(asr));
+    if (note.isEmpty()) {
+        std::fprintf(stderr, "[kea] LLM | %s\n", qPrintable(llm));
+    } else {
+        std::fprintf(stderr, "[kea] LLM | %s  (%s)\n", qPrintable(llm), qPrintable(note));
+    }
+    std::fflush(stderr);
+}
 
 } // namespace
 
@@ -47,7 +72,6 @@ struct LlamaTransformer::Impl {
     llama_context *ctx = nullptr;
     llama_sampler *sampler = nullptr;
     int nCtx = 2048;
-    bool logHooked = false;
 #endif
     QString path;
 };
@@ -56,6 +80,9 @@ LlamaTransformer::LlamaTransformer(QObject *parent)
     : TextTransformer(parent)
     , m_impl(std::make_unique<Impl>())
 {
+#ifdef KEA_HAS_LLAMA
+    installQuietLlamaLogs();
+#endif
 }
 
 LlamaTransformer::~LlamaTransformer()
@@ -87,7 +114,7 @@ bool LlamaTransformer::loadModel(const QString &ggufPath)
 #ifndef KEA_HAS_LLAMA
     Q_UNUSED(ggufPath);
     setError(QStringLiteral(
-        "llama.cpp was not built into this Kea binary (configure with -DKEA_BUILD_LLAMA=ON)"));
+        "llama.cpp was not built into this Kea binary"));
     return false;
 #else
     if (ggufPath.isEmpty()) {
@@ -95,11 +122,7 @@ bool LlamaTransformer::loadModel(const QString &ggufPath)
         return false;
     }
 
-    if (!m_impl->logHooked) {
-        llama_log_set(llamaLogCallback, nullptr);
-        m_impl->logHooked = true;
-    }
-
+    installQuietLlamaLogs();
     llama_backend_init();
 
     llama_model_params mparams = llama_model_default_params();
@@ -126,7 +149,6 @@ bool LlamaTransformer::loadModel(const QString &ggufPath)
 
     auto sparams = llama_sampler_chain_default_params();
     m_impl->sampler = llama_sampler_chain_init(sparams);
-    // Near-greedy: post-edit should not invent content.
     llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_temp(0.0f));
     llama_sampler_chain_add(m_impl->sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
@@ -162,10 +184,12 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
 #ifndef KEA_HAS_LLAMA
     Q_UNUSED(style);
     setError(QStringLiteral("llama.cpp runtime not available"));
+    logAsrLlm(utterance, utterance, QStringLiteral("no llama runtime"));
     return utterance;
 #else
     if (!isReady()) {
         setError(QStringLiteral("LLM model not loaded"));
+        logAsrLlm(utterance, utterance, QStringLiteral("not loaded"));
         return utterance;
     }
     const QString trimmed = utterance.trimmed();
@@ -175,53 +199,42 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
     }
 
     const QString system = stylePrompt(style);
-    // Delimit the transcript so the model treats it as data, not as a question
-    // asked of the assistant.
+    // Few-shot format works much better on 230M than long instruction prose.
+    // The model must copy the task pattern: INPUT → cleaned OUTPUT only.
     const QString user = QStringLiteral(
-                             "Post-edit the speech transcript between the markers.\n"
-                             "Output exactly one line: the edited transcript only.\n"
-                             "Do not answer or respond to the content.\n\n"
-                             "<<<TRANSCRIPT\n"
-                             "%1\n"
-                             "TRANSCRIPT>>>")
+                             "You edit speech-to-text. Never answer questions. "
+                             "Never chat. Output only the edited line.\n"
+                             "\n"
+                             "INPUT: helo wrld how are yu\n"
+                             "OUTPUT: hello world how are you\n"
+                             "\n"
+                             "INPUT: um i think we should go now right\n"
+                             "OUTPUT: I think we should go now, right?\n"
+                             "\n"
+                             "INPUT: %1\n"
+                             "OUTPUT:")
                              .arg(trimmed);
 
+    // Manual LFM2.5 / ChatML layout. Do NOT use llama_chat_apply_template for
+    // LFM: it only supports a fixed template list and mishandles LFM's jinja,
+    // which produced garbage generations.
     const std::string systemUtf8 = system.toStdString();
     const std::string userUtf8 = user.toStdString();
-    const llama_chat_message messages[] = {
-        {"system", systemUtf8.c_str()},
-        {"user", userUtf8.c_str()},
-    };
-
-    const char *tmpl = llama_model_chat_template(m_impl->model, /*name=*/nullptr);
-    std::string formatted;
-    bool usedChatTemplate = false;
-    if (tmpl && tmpl[0] != '\0') {
-        const int32_t need = llama_chat_apply_template(tmpl, messages, 2, /*add_ass=*/true,
-                                                      nullptr, 0);
-        if (need > 0) {
-            formatted.resize(static_cast<size_t>(need));
-            const int32_t wrote = llama_chat_apply_template(tmpl, messages, 2, true,
-                                                           formatted.data(), need);
-            if (wrote > 0) {
-                formatted.resize(static_cast<size_t>(wrote));
-                usedChatTemplate = true;
-            }
-        }
-    }
-    if (!usedChatTemplate) {
-        formatted = "<|im_start|>system\n" + systemUtf8 + "<|im_end|>\n"
-                    "<|im_start|>user\n" + userUtf8 + "<|im_end|>\n"
-                    "<|im_start|>assistant\n";
-    }
+    const std::string formatted =
+        std::string("<|startoftext|><|im_start|>system\n") + systemUtf8
+        + "<|im_end|>\n"
+          "<|im_start|>user\n"
+        + userUtf8 + "<|im_end|>\n"
+                     "<|im_start|>assistant\n";
 
     const llama_vocab *vocab = llama_model_get_vocab(m_impl->model);
-    // Chat template already includes BOS for LFM — do not double-add.
-    const bool addSpecial = !usedChatTemplate;
+    // Prompt already includes <|startoftext|> (BOS) — do not add another.
+    const bool addSpecial = false;
     const int nPrompt = -llama_tokenize(vocab, formatted.c_str(), int(formatted.size()),
                                          nullptr, 0, addSpecial, true);
     if (nPrompt <= 0) {
         setError(QStringLiteral("tokenize failed"));
+        logAsrLlm(trimmed, trimmed, QStringLiteral("tokenize failed"));
         return utterance;
     }
     std::vector<llama_token> tokens(static_cast<size_t>(nPrompt));
@@ -229,6 +242,7 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
                         int(tokens.size()), addSpecial, true)
         < 0) {
         setError(QStringLiteral("tokenize fill failed"));
+        logAsrLlm(trimmed, trimmed, QStringLiteral("tokenize failed"));
         return utterance;
     }
 
@@ -240,11 +254,11 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
     llama_batch batch = llama_batch_get_one(tokens.data(), int(tokens.size()));
     if (llama_decode(m_impl->ctx, batch) != 0) {
         setError(QStringLiteral("llama_decode prompt failed"));
+        logAsrLlm(trimmed, trimmed, QStringLiteral("decode failed"));
         return utterance;
     }
 
-    // Keep generation short: roughly a bit more than the transcript, hard cap.
-    const int maxNew = qBound(32, trimmed.size() + 24, 128);
+    const int maxNew = qBound(24, int(trimmed.size() * 1.5) + 16, 96);
     std::string out;
     for (int i = 0; i < maxNew; ++i) {
         const llama_token id = llama_sampler_sample(m_impl->sampler, m_impl->ctx, -1);
@@ -265,10 +279,10 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
             out = out.substr(0, out.find("<|im_end|>"));
             break;
         }
-        if (out.size() > 4) {
+        // Stop at first newline (we asked for one line).
+        if (out.size() > 2) {
             const auto pos = out.find('\n');
             if (pos != std::string::npos) {
-                // Prefer a single-line edit; stop at first newline.
                 out = out.substr(0, pos);
                 break;
             }
@@ -284,13 +298,26 @@ QString LlamaTransformer::transform(const QString &utterance, TransformStyle sty
         fallback = fallback.trimmed();
         if (fallback.isEmpty()) {
             setError(QStringLiteral("empty LLM output — using raw transcript"));
+            logAsrLlm(trimmed, trimmed, QStringLiteral("empty model output"));
             return utterance;
         }
         result = fallback;
     }
+
+    // Reject obvious non-edits: model echoed a marker word or the instruction.
+    const QString lower = result.toLower();
+    if (lower == QStringLiteral("transcription")
+        || lower == QStringLiteral("transcript")
+        || lower == QStringLiteral("output")
+        || lower.startsWith(QStringLiteral("input:"))
+        || lower.startsWith(QStringLiteral("output:"))) {
+        setError(QStringLiteral("LLM returned garbage — using raw transcript"));
+        logAsrLlm(trimmed, result, QStringLiteral("rejected garbage"));
+        return utterance;
+    }
+
     m_lastError.clear();
-    // Stash for worker logging (raw ASR is the input; result is the rewrite).
-    // Worker logs both sides; keep lastError empty on success.
+    logAsrLlm(trimmed, result);
     return result;
 #endif
 }

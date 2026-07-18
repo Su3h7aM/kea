@@ -34,35 +34,26 @@ TransformStyle TextTransformer::styleFromInt(int v)
 
 QString TextTransformer::stylePrompt(TransformStyle s)
 {
-    // LFM-230M is a general chat model — it will answer questions unless the
-    // role is extremely constrained. Frame as a silent text filter, not an assistant.
+    // Keep this short — 230M models ignore long policies. Role is reinforced
+    // with few-shot INPUT/OUTPUT examples in the user message.
     const QString role = QStringLiteral(
-        "You are a silent speech-to-text post-editor, not a chatbot.\n"
-        "Your entire reply is the edited transcript and nothing else.\n"
-        "Rules:\n"
-        "- Do NOT answer questions in the transcript.\n"
-        "- Do NOT continue the conversation or address the speaker.\n"
-        "- Do NOT add greetings, prefaces, labels, quotes, or explanations.\n"
-        "- Do NOT say you corrected anything.\n"
-        "- Keep the same language and the same meaning.\n"
-        "- If the text is already fine, copy it unchanged.\n");
+        "You are a speech-to-text editor. You never chat or answer questions. "
+        "You only rewrite the INPUT line into a clean OUTPUT line. "
+        "Same language and meaning. No labels, no quotes, no explanations.");
 
     switch (s) {
     case TransformStyle::Correct:
         return role + QStringLiteral(
-                   "Task: fix spelling, grammar, punctuation, and obvious ASR mistakes only.");
+                   " Fix spelling, grammar, punctuation, and ASR mistakes only.");
     case TransformStyle::Enhance:
         return role + QStringLiteral(
-                   "Task: fix errors, remove fillers (um, uh, like), improve clarity; "
-                   "do not add new facts.");
+                   " Fix errors, remove fillers (um/uh/like), improve clarity.");
     case TransformStyle::Professional:
         return role + QStringLiteral(
-                   "Task: fix errors and rephrase into clear professional tone "
-                   "(email/work chat); do not add new facts.");
+                   " Fix errors; use a clear professional tone.");
     case TransformStyle::Casual:
         return role + QStringLiteral(
-                   "Task: fix errors and rephrase into friendly casual tone; "
-                   "do not add new facts.");
+                   " Fix errors; use a friendly casual tone.");
     }
     return stylePrompt(TransformStyle::Correct);
 }
@@ -77,9 +68,12 @@ QString stripKnownPrefixes(QString line)
         "(?:version|transcript|text)?\\s*[:\\-–—]?\\s*"
         "|"
         "(?:corrected|correction|rewritten|rewrite|fixed|output|result|polished|enhanced|"
-        "professional|final|answer|improved)\\s*(?:version|transcript|text)?\\s*[:\\-–—]\\s*"
+        "professional|final|answer|improved|transcription|transcript)\\s*"
+        "(?:version|transcript|text)?\\s*[:\\-–—]\\s*"
         "|"
         "(?:original|input|transcript|raw|source|asr)\\s*[:\\-–—]\\s*"
+        "|"
+        "output\\s*:\\s*"
         ")"),
         QRegularExpression::CaseInsensitiveOption);
 
@@ -119,6 +113,13 @@ QString TextTransformer::sanitizeTransformOutput(const QString &raw, const QStri
     t.remove(endTag);
     t = t.trimmed();
 
+    // Drop leading "OUTPUT:" if the model continued the few-shot pattern wrong.
+    static const QRegularExpression outLead(
+        QStringLiteral("^\\s*OUTPUT\\s*:\\s*"),
+        QRegularExpression::CaseInsensitiveOption);
+    t.remove(outLead);
+    t = t.trimmed();
+
     if (t.size() >= 2) {
         const QChar a = t.front();
         const QChar b = t.back();
@@ -139,6 +140,14 @@ QString TextTransformer::sanitizeTransformOutput(const QString &raw, const QStri
         }
         if (isLabeledOriginalLine(line, original)) {
             continue;
+        }
+        // Skip few-shot template leakage.
+        if (line.startsWith(QStringLiteral("INPUT:"), Qt::CaseInsensitive)
+            || line.startsWith(QStringLiteral("OUTPUT:"), Qt::CaseInsensitive)) {
+            line = stripKnownPrefixes(line);
+            if (line.startsWith(QStringLiteral("INPUT:"), Qt::CaseInsensitive)) {
+                continue;
+            }
         }
         line = stripKnownPrefixes(line);
         if (!line.isEmpty()) {

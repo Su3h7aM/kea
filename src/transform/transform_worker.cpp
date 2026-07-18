@@ -6,6 +6,8 @@
 
 #include "logging.h"
 
+#include <cstdio>
+
 namespace kea {
 
 TransformWorker::TransformWorker(TextTransformer *transformer, QObject *parent)
@@ -27,12 +29,16 @@ void TransformWorker::loadModel(const QString &path)
     }
     const bool ok = m_transformer->loadModel(path);
     if (!ok) {
+        std::fprintf(stderr, "[kea] LLM load failed: %s\n",
+                     qPrintable(m_transformer->lastError()));
+        std::fflush(stderr);
         Q_EMIT modelReady(false, m_transformer->lastError().isEmpty()
                                      ? QStringLiteral("LLM model load failed")
                                      : m_transformer->lastError());
         return;
     }
-    qCInfo(keaLog) << "LLM ready" << path;
+    std::fprintf(stderr, "[kea] LLM ready: %s\n", qPrintable(path));
+    std::fflush(stderr);
     Q_EMIT modelReady(true, QString());
 }
 
@@ -47,6 +53,9 @@ void TransformWorker::unloadModel()
 void TransformWorker::transform(const QString &utterance, int styleInt, quint64 requestId)
 {
     if (!m_transformer) {
+        std::fprintf(stderr, "[kea] ASR | %s\n", qPrintable(utterance));
+        std::fprintf(stderr, "[kea] LLM | (no transformer)\n");
+        std::fflush(stderr);
         Q_EMIT finished(requestId, utterance, QStringLiteral("no transformer"));
         return;
     }
@@ -55,22 +64,18 @@ void TransformWorker::transform(const QString &utterance, int styleInt, quint64 
         return;
     }
     if (!m_transformer->isReady()) {
-        qCWarning(keaLog) << "ASR:" << utterance;
-        qCWarning(keaLog) << "LLM: (not ready — using ASR)";
+        std::fprintf(stderr, "[kea] ASR | %s\n", qPrintable(utterance));
+        std::fprintf(stderr, "[kea] LLM | (not ready — using ASR)\n");
+        std::fflush(stderr);
         Q_EMIT finished(requestId, utterance,
                         QStringLiteral("LLM not ready — using raw transcript"));
         return;
     }
     const TransformStyle style = TextTransformer::styleFromInt(styleInt);
+    // LlamaTransformer::transform also prints [kea] ASR/LLM lines.
     const QString out = m_transformer->transform(utterance, style);
     const QString err = m_transformer->lastError();
-    // Always log both sides so we can compare without digging llama spam.
-    qCInfo(keaLog).noquote() << "ASR: " << utterance;
-    qCInfo(keaLog).noquote() << "LLM: " << out
-                             << (err.isEmpty()
-                                     ? QString()
-                                     : QStringLiteral("  [") + err + QLatin1Char(']'));
-    qCInfo(keaLog) << "style=" << TextTransformer::styleName(style);
+    Q_UNUSED(style);
     Q_EMIT finished(requestId, out, err);
 }
 
