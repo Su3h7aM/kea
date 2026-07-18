@@ -84,15 +84,20 @@ built at `cmake --build` time by `cmake/parakeet.cmake` (via `ExternalProject_Ad
 two self-contained `libparakeet.so` variants (CPU and Vulkan), which Kea loads at runtime
 via `dlopen`.
 
-### GUI only (fast, no ASR build)
+### Build
+
+parakeet.cpp (ASR) and llama.cpp (LLM post-process) are **always** fetched and
+built — they are not optional. First configure/build is slow; later builds reuse
+the ExternalProject stamps under `build/parakeet/` and `build/llama/`.
 
 ```
-cmake -B build -DKEA_BUILD_PARAKEET=OFF
+cmake -B build
 cmake --build build
 ./build/bin/kea                    # run (or QT_QPA_PLATFORM=offscreen ./build/bin/kea)
 ./build/bin/kea-resampler-test     # DSP unit tests
 ./build/bin/kea-committer-test     # TextCommitter unit tests (mock context)
-./build/bin/kea-controller-test    # DictationController state smoke (missing model → Error)
+./build/bin/kea-controller-test    # DictationController state smoke
+./build/bin/kea-transform-test    # post-process pipeline (FakeTransformer)
 ```
 
 ### Runtime flow (Phase 3)
@@ -108,13 +113,9 @@ cmake --build build
    Users extend/override via `~/.config/kea/models.json` (merge by model id);
    local files use quant `path` (absolute or `~/…`) and appear in the Active list.
 
-### With the parakeet backends (fetches + builds parakeet.cpp + ggml, slow on first run)
-
-```
-cmake -B build -DKEA_BUILD_PARAKEET=ON
-cmake --build build --target parakeet_all   # builds CPU (+Vulkan if available)
-cmake --build build                          # builds kea + kea-parakeet-smoke
-```
+Backends are built as part of a normal `cmake --build build`. To rebuild only
+the ASR libraries: `cmake --build build --target parakeet_all`. LLM only:
+`cmake --build build --target llama_cpp`.
 
 The smoke test loads a backend and transcribes a WAV:
 

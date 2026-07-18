@@ -17,15 +17,13 @@
 # runtime via the KEA_PARAKEET_*_LIB defines baked in below.
 #
 # Produced artifacts (under the build tree):
-#   ${CMAKE_BINARY_DIR}/parakeet/cpu/libparakeet.so
-#   ${CMAKE_BINARY_DIR}/parakeet/vulkan/libparakeet.so
+#   ${CMAKE_BINARY_DIR}/parakeet/cpu-build/libparakeet.so
+#   ${CMAKE_BINARY_DIR}/parakeet/vulkan-build/libparakeet.so
 #
-# Disabled when KEA_BUILD_PARAKEET=OFF, so the GUI can be developed without the
-# (slow) ASR build.
+# Always required — Kea cannot dictate without parakeet.
 
 include(ExternalProject)
 
-# Defaults: empty when the parakeet build is off / a variant is skipped.
 set(KEA_PARAKEET_CPU_LIB "")
 set(KEA_PARAKEET_VULKAN_LIB "")
 
@@ -69,33 +67,29 @@ function(_kea_parakeet_add_variant name out_so_path)
     set(${out_so_path} "${_bld}/libparakeet.so" PARENT_SCOPE)
 endfunction()
 
-if(KEA_BUILD_PARAKEET)
+_kea_parakeet_add_variant(cpu  KEA_PARAKEET_CPU_LIB)
 
-    _kea_parakeet_add_variant(cpu  KEA_PARAKEET_CPU_LIB)
+find_package(Vulkan)
+if(Vulkan_FOUND)
+    _kea_parakeet_add_variant(vulkan KEA_PARAKEET_VULKAN_LIB VULKAN)
+endif()
 
-    find_package(Vulkan)
-    if(Vulkan_FOUND)
-        _kea_parakeet_add_variant(vulkan KEA_PARAKEET_VULKAN_LIB VULKAN)
-    endif()
+# Aggregate target so `cmake --build . --target parakeet_all` builds every
+# variant at once. DEPENDS uses a plain list (not a generator expression):
+# whether the Vulkan variant exists is known at configure time.
+set(_kea_parakeet_deps parakeet_cpu)
+if(Vulkan_FOUND)
+    list(APPEND _kea_parakeet_deps parakeet_vulkan)
+endif()
+add_custom_target(parakeet_all ALL
+    DEPENDS ${_kea_parakeet_deps}
+    COMMENT "parakeet.cpp backends built"
+)
 
-    # Aggregate target so `cmake --build . --target parakeet_all` builds every
-    # variant at once. DEPENDS uses a plain list (not a generator expression):
-    # whether the Vulkan variant exists is known at configure time.
-    set(_kea_parakeet_deps parakeet_cpu)
-    if(Vulkan_FOUND)
-        list(APPEND _kea_parakeet_deps parakeet_vulkan)
-    endif()
-    add_custom_target(parakeet_all ALL
-        DEPENDS ${_kea_parakeet_deps}
-        COMMENT "parakeet.cpp backends built"
-    )
-
-    message(STATUS "parakeet.cpp: will be fetched at build time from ${KEA_PARAKEET_GIT_REPOSITORY}@${KEA_PARAKEET_GIT_TAG}")
-    message(STATUS "parakeet.cpp CPU variant:    ${KEA_PARAKEET_CPU_LIB}")
-    if(Vulkan_FOUND)
-        message(STATUS "parakeet.cpp Vulkan variant: ${KEA_PARAKEET_VULKAN_LIB}")
-    else()
-        message(STATUS "parakeet.cpp Vulkan variant: skipped (Vulkan not found)")
-    endif()
-
+message(STATUS "parakeet.cpp: always built from ${KEA_PARAKEET_GIT_REPOSITORY}@${KEA_PARAKEET_GIT_TAG}")
+message(STATUS "parakeet.cpp CPU variant:    ${KEA_PARAKEET_CPU_LIB}")
+if(Vulkan_FOUND)
+    message(STATUS "parakeet.cpp Vulkan variant: ${KEA_PARAKEET_VULKAN_LIB}")
+else()
+    message(STATUS "parakeet.cpp Vulkan variant: skipped (Vulkan not found)")
 endif()
