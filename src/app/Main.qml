@@ -192,14 +192,48 @@ Kirigami.ApplicationWindow {
                 Layout.fillWidth: true
                 enabled: _dictation ? _dictation.canConfigure : true
 
-                Controls.TextField {
-                    id: modelField
-                    Kirigami.FormData.label: i18nc("@label", "Model path")
-                    text: _settings ? _settings.modelPath : ""
+                // Active model is always chosen from the catalog (bundled +
+                // ~/.config/kea/models.json). Paths live in models.json via
+                // quant.path — no free-text path field.
+                Controls.ComboBox {
+                    id: activeModelBox
+                    Kirigami.FormData.label: i18nc("@label", "Active model")
                     Layout.fillWidth: true
-                    onEditingFinished: {
-                        if (_settings)
-                            _settings.modelPath = text
+                    model: _catalog ? _catalog.availableSelections : []
+                    textRole: "display"
+                    enabled: model && model.length > 0
+                    Component.onCompleted: syncFromSettings()
+                    onActivated: (index) => {
+                        if (!_settings || index < 0 || index >= model.length)
+                            return
+                        const sel = model[index]
+                        if (sel && sel.path)
+                            _settings.modelPath = sel.path
+                    }
+
+                    function syncFromSettings() {
+                        if (!_catalog || !_settings)
+                            return
+                        const idx = _catalog.indexOfAvailablePath(_settings.modelPath)
+                        if (idx >= 0)
+                            currentIndex = idx
+                        else if (model && model.length > 0 && currentIndex < 0)
+                            currentIndex = 0
+                    }
+                }
+
+                Controls.Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WrapAnywhere
+                    opacity: 0.7
+                    text: {
+                        if (!_settings)
+                            return ""
+                        if (activeModelBox.model && activeModelBox.model.length === 0)
+                            return i18nc("@info",
+                                "No models available yet. Download one below, or add local paths in %1.",
+                                _catalog ? _catalog.userCatalogPath : "~/.config/kea/models.json")
+                        return _settings.modelPath
                     }
                 }
 
@@ -234,7 +268,7 @@ Kirigami.ApplicationWindow {
 
             // --- Model catalog / download ---
             Kirigami.Heading {
-                text: i18nc("@title:group", "Download model")
+                text: i18nc("@title:group", "Get a model")
                 level: 2
             }
 
@@ -249,7 +283,6 @@ Kirigami.ApplicationWindow {
                     Layout.fillWidth: true
                     model: _catalog ? _catalog.models : []
                     textRole: "name"
-                    // Prefer Kea's default offline model when present.
                     Component.onCompleted: selectDefaultModel()
                     onCountChanged: {
                         if (currentIndex < 0)
@@ -284,7 +317,6 @@ Kirigami.ApplicationWindow {
                         }
                         const mid = _catalog.models[index].id
                         quantBox.model = _catalog.quantsFor(mid)
-                        // Prefer catalog defaultQuant / recommended.
                         const pref = _catalog.preferredQuant(mid)
                         let qi = 0
                         if (pref && pref.id) {
@@ -341,36 +373,55 @@ Kirigami.ApplicationWindow {
                     wrapMode: Text.WordWrap
                     opacity: 0.7
                     text: {
+                        const m = catalogModelBox.selectedModel()
                         const q = quantBox.selectedQuant()
-                        if (!q || !_catalog)
+                        if (!m || !q || !_catalog)
                             return ""
-                        return _catalog.isInstalled(q.filename)
-                               ? i18nc("@info", "✓ Installed at %1", _catalog.localPathFor(q.filename))
-                               : i18nc("@info", "Not installed yet")
+                        if (_catalog.isAvailable(m.id, q.id))
+                            return i18nc("@info", "✓ Available at %1",
+                                         _catalog.resolvedPath(m.id, q.id))
+                        if (q.path)
+                            return i18nc("@info", "Configured path missing: %1", q.path)
+                        return i18nc("@info", "Not downloaded yet")
                     }
                 }
 
                 Controls.Button {
                     text: {
+                        const m = catalogModelBox.selectedModel()
                         const q = quantBox.selectedQuant()
-                        if (q && _catalog && _catalog.isInstalled(q.filename))
-                            return i18nc("@action:button", "Use installed")
+                        if (m && q && _catalog && _catalog.isAvailable(m.id, q.id))
+                            return i18nc("@action:button", "Use this model")
+                        if (q && !q.downloadable)
+                            return i18nc("@action:button", "Path missing")
                         return i18nc("@action:button", "Download")
                     }
-                    enabled: _downloader !== null && quantBox.selectedQuant() !== null
+                    enabled: {
+                        if (!_downloader || !_catalog)
+                            return false
+                        const m = catalogModelBox.selectedModel()
+                        const q = quantBox.selectedQuant()
+                        if (!m || !q)
+                            return false
+                        if (_catalog.isAvailable(m.id, q.id))
+                            return true
+                        return !!q.downloadable
+                    }
                     onClicked: {
                         if (!_downloader || !_settings || !_catalog)
                             return
+                        const m = catalogModelBox.selectedModel()
                         const q = quantBox.selectedQuant()
-                        if (!q)
+                        if (!m || !q)
                             return
-                        const dest = _catalog.localPathFor(q.filename)
-                        if (_catalog.isInstalled(q.filename)) {
-                            _settings.modelPath = dest
-                            modelField.text = dest
+                        if (_catalog.isAvailable(m.id, q.id)) {
+                            _settings.modelPath = _catalog.resolvedPath(m.id, q.id)
+                            activeModelBox.syncFromSettings()
                             return
                         }
-                        // sizeBytes may arrive as a JS number from QVariantMap.
+                        if (!q.downloadable)
+                            return
+                        const dest = _catalog.downloadDest(m.id, q.id)
                         const size = q.sizeBytes ? Number(q.sizeBytes) : 0
                         const sha = q.sha256 ? String(q.sha256) : ""
                         _downloader.download(q.url, dest, sha, size)
@@ -425,8 +476,10 @@ Kirigami.ApplicationWindow {
                 text: {
                     const path = _catalog ? _catalog.userCatalogPath : "~/.config/kea/models.json"
                     return i18nc("@info",
-                        "Add custom models by placing a models.json at %1 " +
-                        "(same schema as the bundled catalog; entries merge by model id).",
+                        "Point Kea at models you already have by editing %1. " +
+                        "Use quant.path for an absolute (or ~/…) file path; " +
+                        "those entries show up in Active model when the file exists. " +
+                        "You can also add downloadable entries (url) that merge with the bundled catalog.",
                         path)
                 }
             }
@@ -478,24 +531,40 @@ Kirigami.ApplicationWindow {
                     "(default Ctrl+Shift+D) while a text field is focused to dictate. " +
                     "Release to commit.\n\n" +
                     "Click Stop to unload the model and change the backend or model file.\n\n" +
-                    "Set the model path above, or export KEA_MODEL=/path/to/model.gguf. " +
-                    "Offline models (e.g. TDT) buffer audio until release; streaming EOU " +
-                    "models insert text live.\n\n" +
+                    "Pick an Active model from the catalog, download one below, or set " +
+                    "KEA_MODEL=/path/to/model.gguf. Offline models buffer until release; " +
+                    "streaming models insert text live.\n\n" +
                     "Only one Wayland input method can own the seat — disable fcitx5/IBus if binding fails.")
             }
         }
     }
 
     Connections {
-        target: _downloader
-        function onFinished(localPath) {
-            if (_settings) {
-                _settings.modelPath = localPath
-                modelField.text = localPath
-            }
-            // Refresh quant list so the "Installed" label re-evaluates.
+        target: _settings
+        function onModelPathChanged() {
+            activeModelBox.syncFromSettings()
+        }
+    }
+
+    Connections {
+        target: _catalog
+        function onAvailabilityChanged() {
+            activeModelBox.syncFromSettings()
             if (catalogModelBox.currentIndex >= 0)
                 catalogModelBox.refreshQuants(catalogModelBox.currentIndex)
+        }
+    }
+
+    Connections {
+        target: _downloader
+        function onFinished(localPath) {
+            if (_settings)
+                _settings.modelPath = localPath
+            if (_catalog)
+                _catalog.refreshAvailability()
+            if (catalogModelBox.currentIndex >= 0)
+                catalogModelBox.refreshQuants(catalogModelBox.currentIndex)
+            activeModelBox.syncFromSettings()
         }
     }
 }

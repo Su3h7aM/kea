@@ -7,8 +7,13 @@
  *
  * Schema v1: each catalog entry is a *model* with nested *quantizations*:
  *   { version, models: [ { id, name, description, streaming, defaultQuant,
- *       quants: [ { id, label, filename, url, sizeBytes, sizeHint, sha256?,
- *                   recommended } ] } ] }
+ *       quants: [ { id, label, filename?, url?, path?, sizeBytes, sizeHint,
+ *                   sha256?, recommended } ] } ] }
+ *
+ * A quant is downloadable when it has a non-empty `url`. It may also declare
+ * an absolute (or ~/…) `path` for a file the user already has on disk. At
+ * least one of `url` or `path` is required. `filename` defaults to the path
+ * basename when only `path` is set.
  */
 #pragma once
 
@@ -23,8 +28,9 @@ namespace kea {
 struct ModelQuant {
     QString id;       ///< e.g. "q8_0"
     QString label;    ///< e.g. "Q8_0"
-    QString filename;
-    QString url;
+    QString filename; ///< used for default download dest name
+    QString url;      ///< empty = not downloadable (local-only entry)
+    QString path;     ///< optional absolute or ~/ path to an existing file
     qint64 sizeBytes = 0;
     QString sizeHint;
     QString sha256;   ///< optional hex digest
@@ -47,6 +53,8 @@ class ModelCatalog : public QObject
     /// Flat list of model maps for QML ComboBox / ListView (no nested objects).
     Q_PROPERTY(QVariantList models READ models NOTIFY modelsChanged)
     Q_PROPERTY(int count READ count NOTIFY modelsChanged)
+    /// Quant variants that resolve to an existing file (for the Active model picker).
+    Q_PROPERTY(QVariantList availableSelections READ availableSelections NOTIFY availabilityChanged)
     /// Path of the user override file (~/.config/kea/models.json).
     Q_PROPERTY(QString userCatalogPath READ userCatalogPath CONSTANT)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
@@ -56,6 +64,7 @@ public:
 
     QVariantList models() const { return m_modelsVariant; }
     int count() const { return m_entries.size(); }
+    QVariantList availableSelections() const;
     QString userCatalogPath() const;
     QString lastError() const { return m_lastError; }
 
@@ -70,11 +79,20 @@ public:
     /// First quant marked recommended, else defaultQuant, else first quant.
     Q_INVOKABLE QVariantMap preferredQuant(const QString &modelId) const;
 
-    /// Absolute path where a download of `filename` would land.
-    Q_INVOKABLE QString localPathFor(const QString &filename) const;
+    /// Resolved filesystem path for a catalog quant (explicit path, else modelsDir/filename).
+    Q_INVOKABLE QString resolvedPath(const QString &modelId, const QString &quantId) const;
 
-    /// True when modelsDir()/filename already exists on disk.
-    Q_INVOKABLE bool isInstalled(const QString &filename) const;
+    /// True when the resolved path exists on disk.
+    Q_INVOKABLE bool isAvailable(const QString &modelId, const QString &quantId) const;
+
+    /// True when the quant has a download URL.
+    Q_INVOKABLE bool isDownloadable(const QString &modelId, const QString &quantId) const;
+
+    /// Default destination for a download of this quant (modelsDir/filename).
+    Q_INVOKABLE QString downloadDest(const QString &modelId, const QString &quantId) const;
+
+    /// Index into availableSelections() for `path`, or -1.
+    Q_INVOKABLE int indexOfAvailablePath(const QString &path) const;
 
     /// Default offline model id used by AppSettings::defaultModelPath.
     Q_INVOKABLE QString defaultModelId() const;
@@ -82,6 +100,12 @@ public:
 
     /// Reload bundled + user catalogs from disk.
     Q_INVOKABLE void reload();
+
+    /// Re-scan disk for available selections (after download / external copy).
+    Q_INVOKABLE void refreshAvailability();
+
+    /// Expand ~/ and clean a configured path (public for tests).
+    static QString expandUserPath(const QString &path);
 
     /// Parse JSON bytes into entries (public for unit tests). Does not merge.
     static bool parseCatalogJson(const QByteArray &json,
@@ -98,8 +122,12 @@ public:
 
     static QString defaultUserCatalogPath();
 
+    /// Resolve where a quant lives on disk (explicit path wins).
+    static QString resolveQuantPath(const ModelQuant &q);
+
 Q_SIGNALS:
     void modelsChanged();
+    void availabilityChanged();
     void lastErrorChanged();
 
 private:
@@ -108,7 +136,10 @@ private:
     static ModelEntry parseModelObject(const QVariantMap &m, QString *error);
     static ModelQuant parseQuantObject(const QVariantMap &q, QString *error);
     static QVariantMap modelToVariant(const ModelEntry &e);
-    static QVariantMap quantToVariant(const ModelQuant &q);
+    QVariantMap quantToVariant(const ModelQuant &q) const;
+    QVariantMap selectionToVariant(const ModelEntry &e, const ModelQuant &q) const;
+    const ModelQuant *findQuant(const QString &modelId, const QString &quantId) const;
+    const ModelEntry *findModel(const QString &modelId) const;
 
     QVector<ModelEntry> m_entries;
     QVariantList m_modelsVariant;

@@ -8,6 +8,7 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
@@ -110,9 +111,7 @@ static const char kUserOverride[] = R"json({
         {
           "id": "f16",
           "label": "F16",
-          "filename": "home.gguf",
-          "url": "file:///tmp/home.gguf",
-          "sizeBytes": 2048
+          "path": "/tmp/home.gguf"
         }
       ]
     }
@@ -190,6 +189,63 @@ int main(int argc, char *argv[])
         check(foundQ4, "user q4_k added");
         check(foundF16, "base f16 kept");
         check(merged[2].id == QStringLiteral("my-local-model"), "new user model appended");
+        check(merged[2].quants[0].path == QStringLiteral("/tmp/home.gguf"), "local path kept");
+        check(merged[2].quants[0].url.isEmpty(), "local-only has empty url");
+        check(merged[2].quants[0].filename == QStringLiteral("home.gguf"),
+              "filename derived from path");
+    }
+
+    std::printf("[catalog] path-only quant + availableSelections\n");
+    {
+        QTemporaryDir dir;
+        check(dir.isValid(), "temp dir for local model");
+        const QString modelPath = dir.filePath(QStringLiteral("mine.gguf"));
+        {
+            QFile f(modelPath);
+            check(f.open(QIODevice::WriteOnly), "write local gguf");
+            f.write("GGUF");
+            f.write(QByteArray(2048, 'z'));
+        }
+
+        const QByteArray json = QByteArrayLiteral(
+            "{\n"
+            "  \"version\": 1,\n"
+            "  \"models\": [{\n"
+            "    \"id\": \"local-pack\",\n"
+            "    \"name\": \"My folder\",\n"
+            "    \"streaming\": false,\n"
+            "    \"quants\": [{\n"
+            "      \"id\": \"q8\",\n"
+            "      \"label\": \"Q8\",\n"
+            "      \"path\": \"")
+            + modelPath.toUtf8() + QByteArrayLiteral("\"\n"
+            "    }]\n"
+            "  }]\n"
+            "}");
+
+        QVector<ModelEntry> entries;
+        QString err;
+        check(ModelCatalog::parseCatalogJson(json, &entries, &err), "parse path-only");
+        check(entries.size() == 1, "1 model");
+        check(entries[0].quants[0].url.isEmpty(), "no url");
+        check(ModelCatalog::resolveQuantPath(entries[0].quants[0]) == modelPath,
+              "resolveQuantPath");
+        check(QFileInfo::exists(ModelCatalog::resolveQuantPath(entries[0].quants[0])),
+              "file exists");
+
+        // expand ~
+        check(ModelCatalog::expandUserPath(QStringLiteral("~/foo.gguf"))
+                  .startsWith(QDir::homePath()),
+              "expand tilde");
+
+        // reject neither url nor path
+        QVector<ModelEntry> bad;
+        check(!ModelCatalog::parseCatalogJson(
+                  QByteArrayLiteral(
+                      R"({"models":[{"id":"x","name":"X","quants":[{"id":"a","label":"A"}]}]})"),
+                  &bad,
+                  &err),
+              "reject quant without url/path");
     }
 
     std::printf("[catalog] load bundled models.json if present\n");

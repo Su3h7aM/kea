@@ -238,10 +238,10 @@ Bind KWin’s `zwp_input_method_v1`. On activate, own a `zwp_input_method_contex
 ### 6.6 Settings & models
 
 - Hotkey, backend, activation mode, model path.
-- **Model catalog** (`data/models.json`, schema v1): each **model** has nested **quantizations** (`id`, `filename`, `url`, `sizeBytes`, optional `sha256`, `recommended`). Flags: streaming vs offline, `defaultQuant`.
-- **User extension:** `~/.config/kea/models.json` (same schema) merges into the bundled list by model id (user quants override/extend).
+- **Model catalog** (`data/models.json`, schema v1): each **model** has nested **quantizations** (`id`, optional `filename`, `url` and/or `path`, `sizeBytes`, optional `sha256`, `recommended`). Flags: streaming vs offline, `defaultQuant`.
+- **User extension:** `~/.config/kea/models.json` (same schema) merges into the bundled list by model id (user quants override/extend). Local files use quant `path` (absolute or `~/…`); no path pasting in the UI.
 - Downloader: progress, cancel, verify GGUF magic (+ `sizeBytes` / optional `sha256`) before promoting the temp file into place.
-- Settings UI: model picker → quantization picker → Download / Use installed.
+- Settings UI: **Active model** select (catalog entries whose file exists) + Get-a-model picker (download or select).
 - First-run onboarding: model present, input method bound, mic usable.
 
 ### 6.7 UI surfaces

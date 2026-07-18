@@ -607,5 +607,5 @@
       ]
     }
   ],
-  "notes": "Catalog schema v1: each model has nested quantizations. Bundled list ships with Kea; users may add/override entries in ~/.config/kea/models.json (same schema). Kea merges by model id (user quants override/extend). Offline models buffer until hotkey release; streaming models feed live. sizeBytes is used for download integrity; optional sha256 is checked when present. F16 is mudler's recommended quant; Kea defaults to Q8_0 for a smaller first download."
+  "notes": "Catalog schema v1: each model has nested quantizations. A quant needs url (downloadable) and/or path (local absolute or ~/ file). filename is optional when path is set (basename is used). Bundled list ships with Kea; users may add/override entries in ~/.config/kea/models.json (same schema). Kea merges by model id (user quants override/extend). The Active model picker lists only quants whose resolved path exists on disk. Offline models buffer until hotkey release; streaming models feed live. sizeBytes is used for download integrity; optional sha256 is checked when present. F16 is mudler's recommended quant; Kea defaults to Q8_0 for a smaller first download. Example local entry: {\"id\":\"my-models\",\"name\":\"My GGUFs\",\"streaming\":false,\"quants\":[{\"id\":\"tdt-q8\",\"label\":\"TDT Q8\",\"path\":\"~/Models/tdt-0.6b-v3-q8_0.gguf\"}]}"
 }

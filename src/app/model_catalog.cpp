@@ -90,6 +90,32 @@ QString ModelCatalog::defaultQuantId() const
     return QStringLiteral("q8_0");
 }
 
+QString ModelCatalog::expandUserPath(const QString &path)
+{
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+    if (trimmed == QLatin1String("~")) {
+        return QDir::homePath();
+    }
+    if (trimmed.startsWith(QLatin1String("~/"))) {
+        return QDir::homePath() + trimmed.mid(1);
+    }
+    return trimmed;
+}
+
+QString ModelCatalog::resolveQuantPath(const ModelQuant &q)
+{
+    if (!q.path.isEmpty()) {
+        return expandUserPath(q.path);
+    }
+    if (q.filename.isEmpty()) {
+        return {};
+    }
+    return AppSettings::defaultModelsDir() + QLatin1Char('/') + q.filename;
+}
+
 void ModelCatalog::setError(const QString &e)
 {
     if (m_lastError == e) {
@@ -141,16 +167,19 @@ void ModelCatalog::reload()
 
     m_entries = mergeCatalogs(base, user);
     if (!m_entries.isEmpty() && m_lastError.startsWith(QStringLiteral("bundled"))) {
-        // Recovered via user-only catalog.
         setError(QString());
-    } else if (!m_entries.isEmpty() && m_lastError.startsWith(QStringLiteral("user"))) {
-        // Bundled ok; leave user error visible so the UI can show a hint.
-    } else if (!m_entries.isEmpty()) {
+    } else if (!m_entries.isEmpty() && !m_lastError.startsWith(QStringLiteral("user"))) {
         setError(QString());
     }
 
     rebuildVariantList();
     Q_EMIT modelsChanged();
+    Q_EMIT availabilityChanged();
+}
+
+void ModelCatalog::refreshAvailability()
+{
+    Q_EMIT availabilityChanged();
 }
 
 void ModelCatalog::rebuildVariantList()
@@ -172,28 +201,36 @@ QVariantMap ModelCatalog::modelToVariant(const ModelEntry &e)
     m.insert(QStringLiteral("source"), e.source);
     m.insert(QStringLiteral("defaultQuant"), e.defaultQuant);
     m.insert(QStringLiteral("quantCount"), e.quants.size());
-    // Display helper: "Streaming · 5 quants" style subtitle for ComboBox.
     QString mode = e.streaming ? QStringLiteral("Streaming") : QStringLiteral("Offline");
     m.insert(QStringLiteral("subtitle"),
              QStringLiteral("%1 · %2 quantizations").arg(mode).arg(e.quants.size()));
     return m;
 }
 
-QVariantMap ModelCatalog::quantToVariant(const ModelQuant &q)
+QVariantMap ModelCatalog::quantToVariant(const ModelQuant &q) const
 {
     QVariantMap m;
     m.insert(QStringLiteral("id"), q.id);
     m.insert(QStringLiteral("label"), q.label);
     m.insert(QStringLiteral("filename"), q.filename);
     m.insert(QStringLiteral("url"), q.url);
+    m.insert(QStringLiteral("path"), q.path);
     m.insert(QStringLiteral("sizeBytes"), q.sizeBytes);
     m.insert(QStringLiteral("sizeHint"), q.sizeHint);
     m.insert(QStringLiteral("sha256"), q.sha256);
     m.insert(QStringLiteral("recommended"), q.recommended);
-    // ComboBox display: "Q8_0 (~897 MB)" or "F16 (~1.3 GB) ★"
+    m.insert(QStringLiteral("downloadable"), !q.url.isEmpty());
+    const QString resolved = resolveQuantPath(q);
+    m.insert(QStringLiteral("resolvedPath"), resolved);
+    m.insert(QStringLiteral("available"),
+             !resolved.isEmpty() && QFileInfo::exists(resolved) && QFileInfo(resolved).isFile());
+
     QString display = q.label;
     if (!q.sizeHint.isEmpty()) {
         display += QStringLiteral(" (") + q.sizeHint + QStringLiteral(")");
+    }
+    if (!q.path.isEmpty()) {
+        display += QStringLiteral(" · local");
     }
     if (q.recommended) {
         display += QStringLiteral(" ★");
@@ -202,78 +239,162 @@ QVariantMap ModelCatalog::quantToVariant(const ModelQuant &q)
     return m;
 }
 
+QVariantMap ModelCatalog::selectionToVariant(const ModelEntry &e, const ModelQuant &q) const
+{
+    QVariantMap m;
+    const QString path = resolveQuantPath(q);
+    m.insert(QStringLiteral("key"),
+             QString(e.id + QLatin1Char('/') + q.id));
+    m.insert(QStringLiteral("modelId"), e.id);
+    m.insert(QStringLiteral("quantId"), q.id);
+    m.insert(QStringLiteral("path"), path);
+    m.insert(QStringLiteral("streaming"), e.streaming);
+    m.insert(QStringLiteral("hasExplicitPath"), !q.path.isEmpty());
+    // "Parakeet TDT 0.6B v3 · Q8_0" (+ local / streaming hints)
+    QString display = e.name + QStringLiteral(" · ") + q.label;
+    if (e.streaming) {
+        display += QStringLiteral(" (streaming)");
+    }
+    if (!q.path.isEmpty()) {
+        display += QStringLiteral(" · local");
+    }
+    m.insert(QStringLiteral("display"), display);
+    m.insert(QStringLiteral("description"), e.description);
+    return m;
+}
+
+const ModelEntry *ModelCatalog::findModel(const QString &modelId) const
+{
+    for (const ModelEntry &e : m_entries) {
+        if (e.id == modelId) {
+            return &e;
+        }
+    }
+    return nullptr;
+}
+
+const ModelQuant *ModelCatalog::findQuant(const QString &modelId, const QString &quantId) const
+{
+    const ModelEntry *e = findModel(modelId);
+    if (!e) {
+        return nullptr;
+    }
+    for (const ModelQuant &q : e->quants) {
+        if (q.id == quantId) {
+            return &q;
+        }
+    }
+    return nullptr;
+}
+
 QVariantList ModelCatalog::quantsFor(const QString &modelId) const
 {
     QVariantList out;
-    for (const ModelEntry &e : m_entries) {
-        if (e.id != modelId) {
-            continue;
-        }
-        for (const ModelQuant &q : e.quants) {
-            out.append(quantToVariant(q));
-        }
-        break;
+    const ModelEntry *e = findModel(modelId);
+    if (!e) {
+        return out;
+    }
+    for (const ModelQuant &q : e->quants) {
+        out.append(quantToVariant(q));
     }
     return out;
 }
 
 QVariantMap ModelCatalog::quant(const QString &modelId, const QString &quantId) const
 {
-    for (const ModelEntry &e : m_entries) {
-        if (e.id != modelId) {
-            continue;
-        }
-        for (const ModelQuant &q : e.quants) {
-            if (q.id == quantId) {
-                return quantToVariant(q);
-            }
-        }
-        break;
+    const ModelQuant *q = findQuant(modelId, quantId);
+    if (!q) {
+        return {};
     }
-    return {};
+    return quantToVariant(*q);
 }
 
 QVariantMap ModelCatalog::preferredQuant(const QString &modelId) const
 {
-    for (const ModelEntry &e : m_entries) {
-        if (e.id != modelId) {
-            continue;
-        }
-        if (e.quants.isEmpty()) {
-            return {};
-        }
-        // Prefer explicit defaultQuant, then recommended flag, then first.
-        if (!e.defaultQuant.isEmpty()) {
-            for (const ModelQuant &q : e.quants) {
-                if (q.id == e.defaultQuant) {
-                    return quantToVariant(q);
-                }
-            }
-        }
-        for (const ModelQuant &q : e.quants) {
-            if (q.recommended) {
+    const ModelEntry *e = findModel(modelId);
+    if (!e || e->quants.isEmpty()) {
+        return {};
+    }
+    if (!e->defaultQuant.isEmpty()) {
+        for (const ModelQuant &q : e->quants) {
+            if (q.id == e->defaultQuant) {
                 return quantToVariant(q);
             }
         }
-        return quantToVariant(e.quants.first());
     }
-    return {};
+    for (const ModelQuant &q : e->quants) {
+        if (q.recommended) {
+            return quantToVariant(q);
+        }
+    }
+    return quantToVariant(e->quants.first());
 }
 
-QString ModelCatalog::localPathFor(const QString &filename) const
+QString ModelCatalog::resolvedPath(const QString &modelId, const QString &quantId) const
 {
-    if (filename.isEmpty()) {
+    const ModelQuant *q = findQuant(modelId, quantId);
+    if (!q) {
         return {};
     }
-    return AppSettings::defaultModelsDir() + QLatin1Char('/') + filename;
+    return resolveQuantPath(*q);
 }
 
-bool ModelCatalog::isInstalled(const QString &filename) const
+bool ModelCatalog::isAvailable(const QString &modelId, const QString &quantId) const
 {
-    if (filename.isEmpty()) {
-        return false;
+    const QString path = resolvedPath(modelId, quantId);
+    return !path.isEmpty() && QFileInfo::exists(path) && QFileInfo(path).isFile();
+}
+
+bool ModelCatalog::isDownloadable(const QString &modelId, const QString &quantId) const
+{
+    const ModelQuant *q = findQuant(modelId, quantId);
+    return q && !q->url.isEmpty();
+}
+
+QString ModelCatalog::downloadDest(const QString &modelId, const QString &quantId) const
+{
+    const ModelQuant *q = findQuant(modelId, quantId);
+    if (!q) {
+        return {};
     }
-    return QFileInfo::exists(localPathFor(filename));
+    // Downloads always land in the Kea models dir under the catalog filename,
+    // even when a local `path` override exists (path is for selection only).
+    if (q->filename.isEmpty()) {
+        return {};
+    }
+    return AppSettings::defaultModelsDir() + QLatin1Char('/') + q->filename;
+}
+
+QVariantList ModelCatalog::availableSelections() const
+{
+    QVariantList out;
+    for (const ModelEntry &e : m_entries) {
+        for (const ModelQuant &q : e.quants) {
+            const QString path = resolveQuantPath(q);
+            if (path.isEmpty() || !QFileInfo::exists(path) || !QFileInfo(path).isFile()) {
+                continue;
+            }
+            out.append(selectionToVariant(e, q));
+        }
+    }
+    return out;
+}
+
+int ModelCatalog::indexOfAvailablePath(const QString &path) const
+{
+    if (path.isEmpty()) {
+        return -1;
+    }
+    const QString want = QFileInfo(expandUserPath(path)).absoluteFilePath();
+    const QVariantList list = availableSelections();
+    for (int i = 0; i < list.size(); ++i) {
+        const QVariantMap m = list.at(i).toMap();
+        const QString p = QFileInfo(m.value(QStringLiteral("path")).toString()).absoluteFilePath();
+        if (p == want) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 bool ModelCatalog::parseCatalogJson(const QByteArray &json,
@@ -390,6 +511,7 @@ ModelQuant ModelCatalog::parseQuantObject(const QVariantMap &q, QString *error)
     out.label = q.value(QStringLiteral("label")).toString().trimmed();
     out.filename = q.value(QStringLiteral("filename")).toString().trimmed();
     out.url = q.value(QStringLiteral("url")).toString().trimmed();
+    out.path = q.value(QStringLiteral("path")).toString().trimmed();
     out.sizeBytes = q.value(QStringLiteral("sizeBytes")).toLongLong();
     out.sizeHint = q.value(QStringLiteral("sizeHint")).toString().trimmed();
     out.sha256 = q.value(QStringLiteral("sha256")).toString().trimmed();
@@ -404,18 +526,39 @@ ModelQuant ModelCatalog::parseQuantObject(const QVariantMap &q, QString *error)
     if (out.label.isEmpty()) {
         out.label = out.id.toUpper();
     }
+
+    // Local-only entries: path without url is valid. Downloadable: url required.
+    if (out.path.isEmpty() && out.url.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("quant %1 needs url and/or path").arg(out.id);
+        }
+        return out;
+    }
+
+    if (out.filename.isEmpty()) {
+        if (!out.path.isEmpty()) {
+            out.filename = QFileInfo(expandUserPath(out.path)).fileName();
+        } else if (!out.url.isEmpty()) {
+            // Last path segment of the URL (strip query).
+            QString last = out.url;
+            const int qpos = last.indexOf(QLatin1Char('?'));
+            if (qpos >= 0) {
+                last = last.left(qpos);
+            }
+            const int slash = last.lastIndexOf(QLatin1Char('/'));
+            if (slash >= 0) {
+                last = last.mid(slash + 1);
+            }
+            out.filename = last;
+        }
+    }
     if (out.filename.isEmpty()) {
         if (error) {
             *error = QStringLiteral("quant %1 missing filename").arg(out.id);
         }
         return out;
     }
-    if (out.url.isEmpty()) {
-        if (error) {
-            *error = QStringLiteral("quant %1 missing url").arg(out.id);
-        }
-        return out;
-    }
+
     if (out.sizeHint.isEmpty() && out.sizeBytes > 0) {
         const double mb = static_cast<double>(out.sizeBytes) / (1024.0 * 1024.0);
         if (mb >= 1024.0) {
@@ -452,21 +595,19 @@ QVector<ModelEntry> ModelCatalog::mergeCatalogs(const QVector<ModelEntry> &base,
             continue;
         }
         ModelEntry &dst = result[*it];
-        // User metadata overrides when non-empty.
         if (!u.name.isEmpty()) {
             dst.name = u.name;
         }
         if (!u.description.isEmpty()) {
             dst.description = u.description;
         }
-        dst.streaming = u.streaming; // explicit
+        dst.streaming = u.streaming;
         if (!u.source.isEmpty()) {
             dst.source = u.source;
         }
         if (!u.defaultQuant.isEmpty()) {
             dst.defaultQuant = u.defaultQuant;
         }
-        // Merge quants by id.
         QHash<QString, int> qIndex;
         for (int qi = 0; qi < dst.quants.size(); ++qi) {
             qIndex.insert(dst.quants[qi].id, qi);

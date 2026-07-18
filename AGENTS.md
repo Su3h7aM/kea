@@ -101,9 +101,9 @@ cmake --build build
 5. Settings (`QSettings` under `kea/kea`): model path, backend (CPU/Vulkan), hotkey.
    Model path default: `$KEA_MODEL` if set, else `~/.local/share/kea/models/tdt-0.6b-v3-q8_0.gguf`.
    Offline models buffer until hotkey release; streaming models feed live.
-   Model catalog (`ModelCatalog`) drives the settings Download picker: choose model +
-   quantization, download from Hugging Face (`mudler/parakeet-cpp-gguf`). Users can
-   extend the list with `~/.config/kea/models.json` (same schema; merge by model id).
+   Model catalog (`ModelCatalog`) drives Active model select + download picker.
+   Users extend/override via `~/.config/kea/models.json` (merge by model id);
+   local files use quant `path` (absolute or `~/…`) and appear in the Active list.
 
 ### With the parakeet backends (fetches + builds parakeet.cpp + ggml, slow on first run)
 
