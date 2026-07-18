@@ -230,7 +230,7 @@ Bind KWin’s `zwp_input_method_v1`. On activate, own a `zwp_input_method_contex
 
 **Commit path (goal):**
 
-1. Active, valid context. Serial is the latest `commit_state` value; until the first `commit_state` arrives the protocol serial is conventionally `0` (same as a fresh context). Prefer not to spam commits before the first `commit_state` when the compositor is still settling focus — that guard is part of R2 completeness.
+1. Active, valid context. Serial is the latest `commit_state` value; until the first `commit_state` arrives the wire value is conventionally `0`. **Goal:** treat “serial known” (at least one `commit_state` received) as part of the commit guard, not only object lifetime. **Tree today:** serial defaults to `0` and `isValid()` is lifetime-only — tracked as incomplete in §8 (R2).
 2. Finalized ASR text → `commit_string(serial, text)`.
 3. Unfinished / gated text → `preedit_string` (live feedback; also the seam for future transform-before-commit).
 4. On session end: commit tail, clear preedit.
