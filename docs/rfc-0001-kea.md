@@ -9,11 +9,11 @@
 | **Target platform** | KDE Plasma 6 on Wayland, PipeWire audio stack |
 | **Inspiration** | Wispr Flow — but local-first, open, and native to the Linux desktop |
 
-### How to read this RFC
+## How to read this RFC
 
 This document is the **product and architecture goal** — what Kea should be — not a changelog of the tree on any given day.
 
-- **Goals, decisions, and non-goals** in §§1–7 and §9–11 define the intended design. Prefer the best solution that actually works on the target platform (Plasma 6 / KWin / PipeWire).
+- **Goals, decisions, and non-goals** in §§1–7 and §9–11 define the intended design. Prefer the most current standard that works on the target stack (Plasma 6 / KWin / PipeWire). Kea is a **KDE-native** app (Kirigami, KGlobalAccel, StatusNotifierItem, …) — not an official KDE project — so compositor and platform choices follow what KWin/Plasma provide.
 - **§8 Implementation status** is the only place that tracks “what ships today vs. still open.” Gaps in §8 are work items, not reasons to rewrite the design downward to match unfinished code.
 - When implementation learns a hard platform fact (e.g. which input-method protocol KWin exposes), update the **goal** so it stays correct — do not keep a prettier protocol name that cannot work on Plasma.
 
@@ -119,7 +119,7 @@ The hard problem is not recognition — it is **injecting text into arbitrary ap
 | Global hotkey | **KGlobalAccel** with press/release via `globalShortcutActiveChanged` | Plasma-native; required for true hold-to-talk. Default sequence avoids Meta interception. |
 | Text insertion | **Wayland input method as implemented by KWin** → **`input_method_unstable_v1`** | Only permission-free, protocol-correct insertion path on Plasma Wayland. See §5.2. |
 | Tray | **KStatusNotifierItem** | Plasma-native on Wayland. |
-| Settings | Prefer simple, reliable persistence; **KConfigXT / KCM** when System Settings integration is worth the cost | First cut may use `QSettings`; long-term goal is KDE-native config surfaces where it helps users. |
+| Settings | **`QSettings` for the first product cut**; **KConfigXT / KCM** later if System Settings integration is worth it | Ship simple reliable persistence first; graduate to KDE config plumbing when a KCM or shared config surface is real work, not aspiration alone. |
 | Process model | **Single process** (tray + settings + pipeline) | Lowest latency; one seat input-method owner. |
 | parakeet integration | **Build-time fetch** of upstream (`ExternalProject`) into dual shared libs | Clean tree; isolated CPU/Vulkan builds; pin via git tag. |
 
@@ -131,7 +131,7 @@ The hard problem is not recognition — it is **injecting text into arbitrary ap
 
 **Mode selection:** auto-detect from the model (`stream_begin` success → streaming; else offline). Users pick a model; they do not pick a second “engine mode” toggle.
 
-**Default model (product decision):** favor the best out-of-box accuracy/language coverage for a first install when size is acceptable; keep a clearly recommended streaming model in the catalog for live UX. Catalog and downloader must make both discoverable (see §6.6).
+**Default model (product decision):** offline **Parakeet TDT 0.6B v3** (`tdt-0.6b-v3-q8_0.gguf`) for first-install accuracy and multilingual coverage. Catalog and onboarding must also one-click-offer the recommended **streaming** model (`parakeet_realtime_eou_120m-v1`) for live UX. Mode remains model-driven either way.
 
 Streaming API shape (authoritative upstream C-API):
 
@@ -230,8 +230,8 @@ Bind KWin’s `zwp_input_method_v1`. On activate, own a `zwp_input_method_contex
 
 **Commit path (goal):**
 
-1. Active context + known serial.
-2. Finalized ASR text → `commit_string`.
+1. Active, valid context. Serial is the latest `commit_state` value; until the first `commit_state` arrives the protocol serial is conventionally `0` (same as a fresh context). Prefer not to spam commits before the first `commit_state` when the compositor is still settling focus — that guard is part of R2 completeness.
+2. Finalized ASR text → `commit_string(serial, text)`.
 3. Unfinished / gated text → `preedit_string` (live feedback; also the seam for future transform-before-commit).
 4. On session end: commit tail, clear preedit.
 
@@ -276,8 +276,9 @@ Snapshot of the tree relative to the goals above. **Update this section when shi
 | Floating listening indicator | Missing |
 | Esc-cancel binding | Missing (tray cancel exists) |
 | Silent commit failure UX (G9) | Partial / weak |
+| R2 serial guard before first `commit_state` | Incomplete (serial defaults to 0; validity is context-only) |
 | Flatpak/AppImage | Missing |
-| KConfigXT / KCM | Not started (`QSettings` in tree) |
+| KConfigXT / KCM | Not started (`QSettings` in tree; accepted for first cut) |
 | KeySequenceItem hotkey capture | Not started (free-text field) |
 | LLM transform pipeline | Design only (separate issue) |
 | Transcript history | Design only (separate issue) |
@@ -289,7 +290,7 @@ Snapshot of the tree relative to the goals above. **Update this section when shi
 | # | Risk | Impact | Mitigation |
 | --- | --- | --- | --- |
 | R1 | One IM per seat; conflict with fcitx5/IBus | High | Detect bind failure; clear readiness copy; document. Long-term: integration or protocol evolution. |
-| R2 | Serial / context races drop or reorder text | High | TextCommitter-only commits; skip when invalid; tests; log and surface failures (G9). |
+| R2 | Serial / context races drop or reorder text | High | TextCommitter-only commits; skip when invalid; track `commit_state`; tests for pre-`commit_state` and dead-context paths; log and surface failures (G9). |
 | R3 | Clients that never activate a usable text-input / IM context (some terminals) | Medium | Diagnostics; app matrix; user-visible fallback (history/clipboard-opt-in) only with explicit UX. |
 | R4 | Vulkan/driver fragility | Medium | CPU always available; fallback; honest settings hints. |
 | R5 | Latency vs quality | Medium | Dual-mode models; catalog guidance; expose threads/quant later. |
@@ -302,7 +303,7 @@ Snapshot of the tree relative to the goals above. **Update this section when shi
 
 ## 10. Open Questions
 
-1. **Default model recommendation** in the catalog/onboarding (streaming EOU vs offline TDT) — both must remain one-click installable.
+1. ~~**Default model.**~~ **Resolved:** default offline TDT 0.6B v3; streaming EOU remains the recommended live-UX catalog entry; both one-click installable.
 2. **Floating overlay** mechanism (layer-shell vs input-panel) vs relying primarily on preedit.
 3. **Model integrity** scheme (SHA-256 in `models.json` vs signed manifests).
 4. **Packaging priority** (Flatpak vs native).
