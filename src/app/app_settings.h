@@ -22,6 +22,10 @@ class AppSettings : public QObject
     /// (e.g. KeySequenceItem) without string round-trips.
     Q_PROPERTY(QKeySequence hotkeySequence READ hotkey WRITE setHotkey NOTIFY hotkeyChanged)
     Q_PROPERTY(int activationMode READ activationMode WRITE setActivationMode NOTIFY activationModeChanged)
+    /// When input-method cannot commit (e.g. terminal never enables text-input),
+    /// copy the transcript to the clipboard so the user can paste.
+    Q_PROPERTY(bool clipboardFallback READ clipboardFallback WRITE setClipboardFallback
+                   NOTIFY clipboardFallbackChanged)
     Q_PROPERTY(bool onboardingDone READ onboardingDone WRITE setOnboardingDone NOTIFY onboardingDoneChanged)
     Q_PROPERTY(bool modelFileExists READ modelFileExists NOTIFY modelPathChanged)
 
@@ -45,6 +49,9 @@ public:
     int activationMode() const { return m_activationMode; }
     void setActivationMode(int mode);
 
+    bool clipboardFallback() const { return m_clipboardFallback; }
+    void setClipboardFallback(bool enabled);
+
     bool onboardingDone() const { return m_onboardingDone; }
     void setOnboardingDone(bool done);
 
@@ -66,6 +73,7 @@ Q_SIGNALS:
     void backendChanged();
     void hotkeyChanged();
     void activationModeChanged();
+    void clipboardFallbackChanged();
     void onboardingDoneChanged();
 
 private:
@@ -73,6 +81,7 @@ private:
     int m_backend = 0;
     QKeySequence m_hotkey;
     int m_activationMode = 0; ///< 0=Push-to-talk, 1=Toggle
+    bool m_clipboardFallback = true;
     bool m_onboardingDone = false;
 };
 

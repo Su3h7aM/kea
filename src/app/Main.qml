@@ -224,6 +224,17 @@ Kirigami.ApplicationWindow {
                     }
                 }
 
+                Controls.CheckBox {
+                    Kirigami.FormData.label: i18nc("@label", "Clipboard fallback")
+                    text: i18nc("@option",
+                        "If insert fails (e.g. some terminals), copy transcript so you can paste")
+                    checked: _settings ? _settings.clipboardFallback : true
+                    onToggled: {
+                        if (_settings)
+                            _settings.clipboardFallback = checked
+                    }
+                }
+
                 Controls.Button {
                     text: _downloader && _downloader.busy
                           ? i18nc("@action:button", "Cancel download")

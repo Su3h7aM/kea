@@ -44,6 +44,7 @@ void InputMethod::zwp_input_method_v1_activate(struct ::zwp_input_method_context
         m_context.reset();
     }
     m_context = std::make_unique<InputMethodContext>(id, this);
+    qInfo() << "Kea: input-method activate (new context)";
     Q_EMIT contextChanged(m_context.get());
     Q_EMIT activated();
 }
@@ -54,6 +55,11 @@ void InputMethod::zwp_input_method_v1_deactivate(struct ::zwp_input_method_conte
     if (!m_context) {
         return;
     }
+    qInfo().nospace() << "Kea: input-method deactivate"
+                      << " serial=" << m_context->serial()
+                      << " sawCommitState=" << m_context->hasReceivedCommitState()
+                      << " purpose=" << m_context->contentPurpose()
+                      << " hint=" << m_context->contentHint();
     // Notify first, destroy second — same UAF rule as activate.
     Q_EMIT contextChanged(nullptr);
     Q_EMIT deactivated();
@@ -113,9 +119,14 @@ void InputMethodContext::zwp_input_method_context_v1_reset()
     // Compositor asks us to drop composing state. Serial is unchanged.
 }
 
-void InputMethodContext::zwp_input_method_context_v1_content_type(uint32_t /*hint*/,
-                                                                 uint32_t /*purpose*/)
+void InputMethodContext::zwp_input_method_context_v1_content_type(uint32_t hint,
+                                                                 uint32_t purpose)
 {
+    m_contentHint = hint;
+    m_contentPurpose = purpose;
+    qInfo().nospace() << "Kea: input-method content_type hint=" << hint
+                      << " purpose=" << purpose;
+    Q_EMIT contentTypeChanged(hint, purpose);
 }
 
 void InputMethodContext::zwp_input_method_context_v1_invoke_action(uint32_t /*button*/,
@@ -126,6 +137,7 @@ void InputMethodContext::zwp_input_method_context_v1_invoke_action(uint32_t /*bu
 void InputMethodContext::zwp_input_method_context_v1_commit_state(uint32_t serial)
 {
     m_serial = serial;
+    m_sawCommitState = true;
     Q_EMIT serialChanged(serial);
 }
 

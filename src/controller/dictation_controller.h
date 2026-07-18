@@ -24,8 +24,8 @@ namespace kea {
 class AudioRecorder;
 class AppSettings;
 class GlobalHotkey;
+class InsertionRouter;
 class ParakeetWorker;
-class TextCommitter;
 
 class DictationController : public QObject
 {
@@ -54,7 +54,7 @@ public:
     explicit DictationController(AppSettings *settings, QObject *parent = nullptr);
     ~DictationController() override;
 
-    void setTextCommitter(TextCommitter *committer);
+    void setInsertionRouter(InsertionRouter *router);
     void setHotkey(GlobalHotkey *hotkey);
 
     State state() const { return m_state; }
@@ -118,7 +118,7 @@ private:
     void maybeUnloadAfterDrain();
 
     AppSettings *m_settings = nullptr;
-    TextCommitter *m_committer = nullptr;
+    InsertionRouter *m_inserter = nullptr;
     GlobalHotkey *m_hotkey = nullptr;
 
     std::unique_ptr<AudioRecorder> m_recorder;

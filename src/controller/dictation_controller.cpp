@@ -12,7 +12,7 @@
 #include "audio/audio_recorder.h"
 #include "controller/parakeet_worker.h"
 #include "hotkey/global_hotkey.h"
-#include "insert/text_committer.h"
+#include "insert/insertion_router.h"
 #include "logging.h"
 
 namespace kea {
@@ -75,9 +75,9 @@ DictationController::~DictationController()
     m_workerThread.wait(3000);
 }
 
-void DictationController::setTextCommitter(TextCommitter *committer)
+void DictationController::setInsertionRouter(InsertionRouter *router)
 {
-    m_committer = committer;
+    m_inserter = router;
 }
 
 void DictationController::setHotkey(GlobalHotkey *hotkey)
@@ -353,20 +353,25 @@ void DictationController::onTextFinalized(const QString &text, int /*eouMask*/)
     if (text.isEmpty() || m_state == State::Idle) {
         return;
     }
-    // Do not enter Error state mid-session — insertion can fail simply
-    // because no text field is focused (terminals, empty seat, …).
-    if (!m_committer || !m_committer->commitText(text)) {
-        const QString detail = !m_committer
-            ? QStringLiteral("no text committer")
-            : (m_committer->lastError().isEmpty()
-                   ? QStringLiteral("no active text field")
-                   : m_committer->lastError());
-        // Log metadata only — never the dictated speech (privacy).
-        qCWarning(keaLog) << "commit failed (streaming increment):" << detail
-                           << "chars=" << text.size();
-        m_lastError = QStringLiteral("Could not insert text (%1)").arg(detail);
+    if (!m_inserter) {
+        m_lastError = QStringLiteral("Could not insert text (no inserter)");
         Q_EMIT lastErrorChanged();
         setStatus(m_lastError);
+        return;
+    }
+    const auto r = m_inserter->insertText(text);
+    if (!r.delivered) {
+        // Do not enter Error state mid-session — terminals often lack an IM context.
+        m_lastError = QStringLiteral("Could not insert text (%1)").arg(r.detail);
+        Q_EMIT lastErrorChanged();
+        setStatus(m_lastError);
+        return;
+    }
+    if (r.path == InsertionRouter::Path::Clipboard) {
+        // IM failed; clipboard has the text — surface that without Error state.
+        m_lastError.clear();
+        Q_EMIT lastErrorChanged();
+        setStatus(r.detail);
     }
 }
 
@@ -428,32 +433,34 @@ void DictationController::onSessionFinished(const QString &text, const QString &
         QMetaObject::invokeMethod(
             this,
             [this, copy]() {
-                if (!m_committer || !m_committer->commitText(copy)) {
-                    const QString detail = !m_committer
-                        ? QStringLiteral("no text committer")
-                        : (m_committer->lastError().isEmpty()
-                               ? QStringLiteral("no active text field")
-                               : m_committer->lastError());
-                    qCWarning(keaLog) << "commit failed (session finished):" << detail
-                                       << "chars=" << copy.size();
+                if (!m_inserter) {
+                    m_lastError = QStringLiteral("Could not insert text (no inserter)");
+                    Q_EMIT lastErrorChanged();
+                    setStatus(QStringLiteral("Insert failed — transcript: %1").arg(copy));
+                    return;
+                }
+                const auto r = m_inserter->insertText(copy);
+                m_inserter->clearPreedit();
+                if (!r.delivered) {
                     m_lastError =
-                        QStringLiteral("Could not insert text (%1)").arg(detail);
+                        QStringLiteral("Could not insert text (%1)").arg(r.detail);
                     Q_EMIT lastErrorChanged();
                     // Keep the transcript visible so the user can recover it.
                     setStatus(QStringLiteral("Insert failed — transcript: %1")
                                   .arg(copy));
-                    if (m_committer) {
-                        m_committer->clearPreedit();
-                    }
                     return;
                 }
-                m_committer->clearPreedit();
+                if (r.path == InsertionRouter::Path::Clipboard) {
+                    m_lastError.clear();
+                    Q_EMIT lastErrorChanged();
+                    setStatus(r.detail);
+                }
             },
             Qt::QueuedConnection);
     } else {
         qCInfo(keaLog) << "transcript empty";
-        if (m_committer) {
-            m_committer->clearPreedit();
+        if (m_inserter) {
+            m_inserter->clearPreedit();
         }
     }
 
@@ -468,8 +475,8 @@ void DictationController::cancel()
     m_stopWhenStarted = false;
     m_startAfterLoad = false;
     stopCaptureOnly();
-    if (m_committer) {
-        m_committer->clearPreedit();
+    if (m_inserter) {
+        m_inserter->clearPreedit();
     }
     QMetaObject::invokeMethod(m_worker, "cancelSession", Qt::QueuedConnection);
     setState(State::Idle);

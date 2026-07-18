@@ -97,6 +97,8 @@ add_library(kea_insert STATIC
     insert/input_method.cpp
     insert/text_committer.h
     insert/text_committer.cpp
+    insert/insertion_router.h
+    insert/insertion_router.cpp
 )
 target_include_directories(kea_insert PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(kea_insert
@@ -119,6 +121,11 @@ qt_generate_wayland_protocol_client_sources(kea_insert
 add_executable(kea-committer-test committer_test.cpp)
 target_link_libraries(kea-committer-test PRIVATE Qt6::Core kea_insert)
 add_test(NAME committer COMMAND kea-committer-test)
+
+# InsertionRouter: IM path + clipboard fallback (needs QGuiApplication clipboard).
+add_executable(kea-insertion-router-test insertion_router_test.cpp)
+target_link_libraries(kea-insertion-router-test PRIVATE Qt6::Core Qt6::Gui kea_insert)
+add_test(NAME insertion-router COMMAND kea-insertion-router-test)
 
 # Headless controller smoke (missing model → Error).
 add_executable(kea-controller-test controller_test.cpp

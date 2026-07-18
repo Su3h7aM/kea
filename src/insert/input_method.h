@@ -78,9 +78,15 @@ public:
     void commitString(const QString &text) override;
     void setPreedit(const QString &text, const QString &fallbackCommit) override;
 
+    /// Last content_type from the client (diagnostics; 0 if never sent).
+    uint32_t contentHint() const { return m_contentHint; }
+    uint32_t contentPurpose() const { return m_contentPurpose; }
+    bool hasReceivedCommitState() const { return m_sawCommitState; }
+
 Q_SIGNALS:
     void serialChanged(uint32_t serial);
     void surroundingTextChanged(const QString &text, uint32_t cursor, uint32_t anchor);
+    void contentTypeChanged(uint32_t hint, uint32_t purpose);
 
 protected:
     void zwp_input_method_context_v1_surrounding_text(const QString &text,
@@ -95,6 +101,9 @@ protected:
 private:
     uint32_t m_serial = 0;
     bool m_valid = true;
+    bool m_sawCommitState = false;
+    uint32_t m_contentHint = 0;
+    uint32_t m_contentPurpose = 0;
 };
 
 } // namespace kea
