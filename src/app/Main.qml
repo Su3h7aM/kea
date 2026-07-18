@@ -15,6 +15,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as Controls
 import org.kde.kirigami as Kirigami
+import org.kde.kquickcontrols as KQuickControls
 
 Kirigami.ApplicationWindow {
     id: root
@@ -266,21 +267,23 @@ Kirigami.ApplicationWindow {
             Kirigami.FormLayout {
                 Layout.fillWidth: true
 
-                Controls.TextField {
-                    id: hotkeyField
+                // Capture the real key chord (same control class as System Settings),
+                // instead of free-typed strings that QKeySequence::fromString may reject.
+                KQuickControls.KeySequenceItem {
+                    id: hotkeyItem
                     Kirigami.FormData.label: i18nc("@label", "Hotkey")
-                    text: _hotkey ? _hotkey.sequenceDisplay : ""
-                    placeholderText: i18nc("@info:placeholder", "e.g. Ctrl+Shift+D")
-                    Layout.fillWidth: true
-                    onEditingFinished: {
-                        if (_settings)
-                            _settings.hotkey = text
+                    keySequence: _hotkey ? _hotkey.sequence : ""
+                    // Multi-key chords are unusual for hold-to-talk; keep single sequence.
+                    multiKeyShortcutsAllowed: false
+                    onKeySequenceModified: {
+                        if (!_settings)
+                            return
+                        _settings.hotkeySequence = hotkeyItem.keySequence
                     }
-                    // Refresh display when the hotkey changes programmatically.
                     Connections {
                         target: _hotkey
                         function onSequenceChanged() {
-                            hotkeyField.text = _hotkey.sequenceDisplay
+                            hotkeyItem.keySequence = _hotkey.sequence
                         }
                     }
                 }
