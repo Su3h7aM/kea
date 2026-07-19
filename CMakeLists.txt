@@ -59,9 +59,8 @@ ecm_find_qmlmodule(org.kde.kirigami REQUIRED)
 # Key sequence capture widget (System Settings–style shortcut editor).
 ecm_find_qmlmodule(org.kde.kquickcontrols REQUIRED)
 
-# --- parakeet.cpp: fetched and built by ExternalProject (two variants) ---
-# Controlled so the GUI can build independently of the heavy ASR build.
-option(KEA_BUILD_PARAKEET "Fetch and build parakeet.cpp (CPU + Vulkan variants) at build time" ON)
+# --- parakeet.cpp: always built (required ASR engine, not optional) ---
+# Fetched/built by ExternalProject as CPU (+ Vulkan when available) libparakeet.
 set(KEA_PARAKEET_GIT_REPOSITORY "https://github.com/mudler/parakeet.cpp" CACHE STRING "parakeet.cpp git source")
 # Pinned to a known-good commit rather than a floating branch: "master" made
 # every from-scratch build non-reproducible and liable to break without any
@@ -69,10 +68,15 @@ set(KEA_PARAKEET_GIT_REPOSITORY "https://github.com/mudler/parakeet.cpp" CACHE S
 # upstream changes.
 set(KEA_PARAKEET_GIT_TAG "1da853421de9710cbe894a0110711de5a0516486" CACHE STRING "parakeet.cpp git ref to fetch")
 
+# --- llama.cpp: always built (LLM post-processing for issue #6) ---
+set(KEA_LLAMA_GIT_REPOSITORY "https://github.com/ggml-org/llama.cpp" CACHE STRING "llama.cpp git source")
+set(KEA_LLAMA_GIT_TAG "b9999" CACHE STRING "llama.cpp git ref to fetch")
+
 add_subdirectory(src)
 
 install(PROGRAMS io.github.su3h7am.kea.desktop DESTINATION ${KDE_INSTALL_APPDIR})
 install(FILES io.github.su3h7am.kea.metainfo.xml DESTINATION ${KDE_INSTALL_METAINFODIR})
 install(FILES data/models.json DESTINATION ${KDE_INSTALL_DATADIR}/kea)
+install(FILES data/llm_models.json DESTINATION ${KDE_INSTALL_DATADIR}/kea)
 
 feature_summary(WHAT ALL INCLUDE_QUIET_PACKAGES FATAL_ON_MISSING_REQUIRED_PACKAGES)

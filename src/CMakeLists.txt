@@ -30,11 +30,35 @@ target_sources(kea
         controller/parakeet_worker.cpp
         controller/dictation_controller.h
         controller/dictation_controller.cpp
+        transform/text_transformer.h
+        transform/text_transformer.cpp
+        transform/transform_worker.h
+        transform/transform_worker.cpp
+        transform/llama_transformer.h
+        transform/llama_transformer.cpp
 )
 
-# Dev/install fallback so ModelCatalog finds data/models.json before install.
+# Dev/install fallback so ModelCatalog finds data/* before install.
 target_compile_definitions(kea PRIVATE
     KEA_MODELS_JSON="${CMAKE_SOURCE_DIR}/data/models.json"
+    KEA_LLM_MODELS_JSON="${CMAKE_SOURCE_DIR}/data/llm_models.json"
+)
+
+# llama.cpp for LLM post-processing (always built with Kea).
+include(${CMAKE_SOURCE_DIR}/cmake/llama.cmake)
+add_dependencies(kea llama_cpp)
+target_compile_definitions(kea PRIVATE KEA_HAS_LLAMA=1)
+target_include_directories(kea PRIVATE
+    "${CMAKE_BINARY_DIR}/llama/src/include"
+    "${CMAKE_BINARY_DIR}/llama/src/ggml/include"
+)
+# Runtime: libllama.so and libggml*.so live under llama/build/bin.
+target_link_directories(kea PRIVATE "${CMAKE_BINARY_DIR}/llama/build/bin")
+target_link_libraries(kea PRIVATE llama ggml ggml-base ggml-cpu)
+# RPATH so the binary finds the build-tree libs without install.
+set_target_properties(kea PROPERTIES
+    BUILD_RPATH "${CMAKE_BINARY_DIR}/llama/build/bin"
+    INSTALL_RPATH "\$ORIGIN/../lib"
 )
 
 ecm_target_qml_sources(kea
@@ -159,6 +183,7 @@ target_link_libraries(kea-model-catalog-test
 )
 target_compile_definitions(kea-model-catalog-test PRIVATE
     KEA_MODELS_JSON="${CMAKE_SOURCE_DIR}/data/models.json"
+    KEA_LLM_MODELS_JSON="${CMAKE_SOURCE_DIR}/data/llm_models.json"
 )
 add_test(NAME model_catalog COMMAND kea-model-catalog-test)
 
@@ -174,6 +199,9 @@ add_executable(kea-controller-test controller_test.cpp
     controller/dictation_controller.cpp
     controller/inference_worker.cpp
     controller/parakeet_worker.cpp
+    transform/text_transformer.cpp
+    transform/transform_worker.cpp
+    transform/llama_transformer.cpp
     hotkey/global_hotkey.cpp
 )
 target_link_libraries(kea-controller-test
@@ -189,11 +217,34 @@ target_link_libraries(kea-controller-test
 )
 add_test(NAME controller COMMAND kea-controller-test)
 
+# Transform prompts + gated controller path (FakeTransformer, no llama runtime).
+add_executable(kea-transform-test transform_test.cpp
+    logging.cpp
+    app/app_settings.cpp
+    controller/dictation_controller.cpp
+    controller/inference_worker.cpp
+    controller/parakeet_worker.cpp
+    transform/text_transformer.cpp
+    transform/transform_worker.cpp
+    transform/llama_transformer.cpp
+    hotkey/global_hotkey.cpp
+)
+target_link_libraries(kea-transform-test
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Multimedia
+        KF6::GlobalAccel
+        KF6::I18n
+        kea_audio
+        kea_inference
+        kea_insert
+)
+add_test(NAME transform COMMAND kea-transform-test)
+
 # --- Inference static lib: the dlopen loader. ---
-# Compiles without the upstream header (opaque types declared in the .cpp), so
-# it builds even when KEA_BUILD_PARAKEET=OFF. The path defines resolve to the
-# empty string for variants that weren't built; the loader reports that at
-# runtime.
+# Compiles without the upstream header (opaque types declared in the .cpp).
+# Paths to the always-built libparakeet variants are baked in at compile time.
 add_library(kea_inference STATIC
     inference/parakeet_backend.h
     inference/parakeet_backend.cpp
@@ -208,6 +259,9 @@ target_compile_definitions(kea_inference PRIVATE
     KEA_PARAKEET_CPU_LIB="${KEA_PARAKEET_CPU_LIB}"
     KEA_PARAKEET_VULKAN_LIB="${KEA_PARAKEET_VULKAN_LIB}"
 )
+# Ensure backends exist before any target that needs real .so paths at runtime.
+add_dependencies(kea_inference parakeet_all)
+add_dependencies(kea parakeet_all)
 
 # --- Fake parakeet C-API shared library (test-only double for ParakeetBackend). ---
 # Mimics the upstream flat C-API surface so ParakeetBackend's dlopen loader
@@ -242,16 +296,13 @@ target_compile_definitions(kea-parakeet-worker-test PRIVATE
 add_test(NAME parakeet_worker COMMAND kea-parakeet-worker-test)
 
 # --- Phase 0 smoke test: load a backend, transcribe a WAV. ---
-# Only when the parakeet backends are actually built (it needs the .so files).
-if(KEA_BUILD_PARAKEET)
-    add_executable(kea-parakeet-smoke parakeet_smoke.cpp)
-    target_link_libraries(kea-parakeet-smoke PRIVATE Qt6::Core kea_inference)
-    add_dependencies(kea-parakeet-smoke parakeet_all)
-    install(TARGETS kea-parakeet-smoke ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
+add_executable(kea-parakeet-smoke parakeet_smoke.cpp)
+target_link_libraries(kea-parakeet-smoke PRIVATE Qt6::Core kea_inference)
+add_dependencies(kea-parakeet-smoke parakeet_all)
+install(TARGETS kea-parakeet-smoke ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 
-    # --- Phase 1 smoke test: streaming pipeline (WAV -> 16k -> stream -> text). ---
-    add_executable(kea-stream-smoke stream_smoke.cpp)
-    target_link_libraries(kea-stream-smoke PRIVATE Qt6::Core kea_dsp kea_inference)
-    add_dependencies(kea-stream-smoke parakeet_all)
-    install(TARGETS kea-stream-smoke ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
-endif()
+# --- Phase 1 smoke test: streaming pipeline (WAV -> 16k -> stream -> text). ---
+add_executable(kea-stream-smoke stream_smoke.cpp)
+target_link_libraries(kea-stream-smoke PRIVATE Qt6::Core kea_dsp kea_inference)
+add_dependencies(kea-stream-smoke parakeet_all)
+install(TARGETS kea-stream-smoke ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})

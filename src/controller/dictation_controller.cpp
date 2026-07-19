@@ -4,9 +4,11 @@
  */
 #include "dictation_controller.h"
 
+#include <QFileInfo>
 #include <QList>
 #include <QMetaObject>
 #include <QMetaType>
+#include <QThread>
 
 #include "app/app_settings.h"
 #include "audio/audio_recorder.h"
@@ -15,6 +17,9 @@
 #include "hotkey/global_hotkey.h"
 #include "insert/insertion_router.h"
 #include "logging.h"
+#include "transform/llama_transformer.h"
+#include "transform/text_transformer.h"
+#include "transform/transform_worker.h"
 
 namespace kea {
 
@@ -36,10 +41,49 @@ void DictationController::initCommon(AppSettings *settings)
         connect(m_settings, &AppSettings::activationModeChanged, this, [this]() {
             setActivationMode(m_settings->activationMode());
         });
+        connect(m_settings, &AppSettings::postProcessEnabledChanged, this, [this]() {
+            if (postProcessActive()) {
+                ensureTransformModelLoaded();
+            }
+        });
+        connect(m_settings, &AppSettings::llmModelPathChanged, this, [this]() {
+            m_transformModelReady = false;
+            if (postProcessActive()) {
+                ensureTransformModelLoaded();
+            }
+        });
         m_activationMode = (m_settings->activationMode() == 1)
                                ? ActivationMode::Toggle
                                : ActivationMode::PushToTalk;
     }
+}
+
+void DictationController::setupTransform(TextTransformer *externalTransformer)
+{
+    if (externalTransformer) {
+        m_transformer = externalTransformer;
+        m_ownTransformer = false;
+        m_transformWorker = new TransformWorker(m_transformer);
+        // Same-thread for tests.
+        connect(m_transformWorker, &TransformWorker::finished,
+                this, &DictationController::onTransformFinished);
+        connect(m_transformWorker, &TransformWorker::modelReady,
+                this, &DictationController::onTransformModelReady);
+        return;
+    }
+
+    m_ownTransformer = true;
+    m_transformer = new LlamaTransformer;
+    m_transformWorker = new TransformWorker(m_transformer);
+    // Both live on the transform thread — llama.cpp is not thread-safe across
+    // contexts if we call load/transform from different threads.
+    m_transformer->moveToThread(&m_transformThread);
+    m_transformWorker->moveToThread(&m_transformThread);
+    m_transformThread.start();
+    connect(m_transformWorker, &TransformWorker::finished,
+            this, &DictationController::onTransformFinished);
+    connect(m_transformWorker, &TransformWorker::modelReady,
+            this, &DictationController::onTransformModelReady);
 }
 
 void DictationController::wireWorker()
@@ -79,11 +123,24 @@ DictationController::DictationController(AppSettings *settings, QObject *parent)
     m_workerThread.start();
     wireWorker();
     wireRecorder();
+    setupTransform(nullptr);
+    if (postProcessActive()) {
+        ensureTransformModelLoaded();
+    }
 }
 
 DictationController::DictationController(AppSettings *settings,
                                          InferenceWorker *worker,
                                          AudioRecorder *recorder,
+                                         QObject *parent)
+    : DictationController(settings, worker, recorder, nullptr, parent)
+{
+}
+
+DictationController::DictationController(AppSettings *settings,
+                                         InferenceWorker *worker,
+                                         AudioRecorder *recorder,
+                                         TextTransformer *transformer,
                                          QObject *parent)
     : QObject(parent)
     , m_ownRecorder(false)
@@ -95,6 +152,7 @@ DictationController::DictationController(AppSettings *settings,
     // Same-thread: no background worker thread. Tests drive processEvents().
     wireWorker();
     wireRecorder();
+    setupTransform(transformer);
 }
 
 DictationController::~DictationController()
@@ -103,12 +161,34 @@ DictationController::~DictationController()
     if (m_ownWorker) {
         m_workerThread.quit();
         m_workerThread.wait(3000);
-        // m_worker is deleteLater'd when the thread finishes.
         m_worker = nullptr;
     }
-    // External worker/recorder are not owned.
+    if (m_ownTransformer) {
+        // Tear down on the transform thread's event loop (no moveToThread from
+        // the wrong thread — that caused pure-virtual/SIGABRT on quit).
+        if (m_transformWorker && m_transformThread.isRunning()) {
+            QMetaObject::invokeMethod(m_transformWorker, "unloadModel",
+                                      Qt::BlockingQueuedConnection);
+            // deleteLater is processed on the worker thread before quit.
+            QMetaObject::invokeMethod(m_transformWorker, "deleteLater",
+                                      Qt::QueuedConnection);
+            if (m_transformer) {
+                QMetaObject::invokeMethod(m_transformer, "deleteLater",
+                                          Qt::QueuedConnection);
+            }
+            m_transformThread.quit();
+            m_transformThread.wait(5000);
+        } else {
+            delete m_transformWorker;
+            delete m_transformer;
+        }
+        m_transformWorker = nullptr;
+        m_transformer = nullptr;
+    } else if (m_transformWorker) {
+        delete m_transformWorker;
+        m_transformWorker = nullptr;
+    }
     if (m_ownRecorder) {
-        // Child of this (parent=this in production ctor).
         m_recorder = nullptr;
     }
 }
@@ -295,6 +375,10 @@ void DictationController::onModelUnloaded()
 
 void DictationController::start()
 {
+    if (m_transformInFlight) {
+        qCDebug(keaLog) << "start ignored while polishing";
+        return;
+    }
     if (m_unloadAfterDrain) {
         qCDebug(keaLog) << "start ignored while deferred unload is pending";
         return;
@@ -320,10 +404,14 @@ void DictationController::beginListening()
 {
     // Synchronous transition so a second start() before the worker answers is ignored.
     m_stopWhenStarted = false;
+    m_utteranceBuffer.clear();
     setError(QString());
     setState(State::Starting);
     setStatus(QStringLiteral("Starting…"));
     qCInfo(keaLog) << "beginListening";
+    if (postProcessActive()) {
+        ensureTransformModelLoaded();
+    }
     QMetaObject::invokeMethod(m_worker, "beginSession", Qt::QueuedConnection);
 }
 
@@ -386,11 +474,161 @@ void DictationController::onLevel(float level)
     Q_EMIT levelChanged();
 }
 
+bool DictationController::postProcessActive() const
+{
+    return m_settings && m_settings->postProcessEnabled();
+}
+
+void DictationController::ensureTransformModelLoaded()
+{
+    if (!m_settings || !m_transformWorker || m_transformLoadPending) {
+        return;
+    }
+    // Heal missing / test-polluted paths (e.g. /tmp/kea-fake-llm.gguf) by
+    // picking a real GGUF under ~/.local/share/kea/llm-models/.
+    const QString path = m_settings->resolveLlmModelPath();
+    if (path.isEmpty() || !QFileInfo::exists(path)) {
+        m_transformModelReady = false;
+        qCWarning(keaLog) << "LLM model file missing; download LFM under"
+                          << AppSettings::defaultLlmModelsDir()
+                          << "configured path was" << m_settings->llmModelPath();
+        if (postProcessActive()) {
+            setStatus(QStringLiteral(
+                "LLM model missing — download LFM2.5 in Settings (Transcript mode)"));
+        }
+        return;
+    }
+    if (m_transformModelReady) {
+        // Already loaded for this session.
+        return;
+    }
+    m_transformLoadPending = true;
+    m_transformModelReady = false;
+    qCInfo(keaLog) << "loading LLM model" << path;
+    setStatus(QStringLiteral("Loading LLM…"));
+    QMetaObject::invokeMethod(m_transformWorker, "loadModel", Qt::QueuedConnection,
+                              Q_ARG(QString, path));
+}
+
+void DictationController::onTransformModelReady(bool ok, const QString &error)
+{
+    m_transformLoadPending = false;
+    m_transformModelReady = ok;
+    if (!ok && postProcessActive()) {
+        qCWarning(keaLog) << "LLM model not ready:" << error;
+        setStatus(QStringLiteral("LLM load failed: %1").arg(error));
+    } else if (ok) {
+        qCInfo(keaLog) << "LLM model ready";
+        if (!m_transformInFlight && m_state == State::Idle) {
+            setStatus(QStringLiteral("Ready — hold hotkey to dictate"));
+        }
+    }
+}
+
+void DictationController::queueTransform(const QString &utterance)
+{
+    ++m_transformRequestId;
+    m_pendingTransformId = m_transformRequestId;
+    m_transformInFlight = true;
+    setStatus(QStringLiteral("Polishing…"));
+    const int style = m_settings ? m_settings->postProcessStyle() : 0;
+    // Ensure load is queued *before* transform on the same worker thread so
+    // load completes first when both were just requested.
+    ensureTransformModelLoaded();
+    QMetaObject::invokeMethod(m_transformWorker, "transform", Qt::QueuedConnection,
+                              Q_ARG(QString, utterance),
+                              Q_ARG(int, style),
+                              Q_ARG(quint64, m_pendingTransformId));
+}
+
+void DictationController::onTransformFinished(quint64 requestId, const QString &text,
+                                              const QString &error)
+{
+    if (requestId != m_pendingTransformId) {
+        qCDebug(keaLog) << "ignoring stale transform result id=" << requestId;
+        return;
+    }
+    m_transformInFlight = false;
+    m_pendingTransformId = 0;
+    if (!error.isEmpty()) {
+        // Fail open: still deliver text (may be raw). Surface the note.
+        m_lastError = error;
+        Q_EMIT lastErrorChanged();
+    } else {
+        m_lastError.clear();
+        Q_EMIT lastErrorChanged();
+    }
+    deliverFinalText(text);
+}
+
+void DictationController::deliverFinalText(const QString &text)
+{
+    if (m_inserter) {
+        m_inserter->clearPreedit();
+    }
+    m_utteranceBuffer.clear();
+
+    if (text.isEmpty()) {
+        setState(State::Idle);
+        setStatus(QStringLiteral("Idle"));
+        maybeUnloadAfterDrain();
+        return;
+    }
+
+    // Idle first so a new hotkey press is allowed during insert.
+    setState(State::Idle);
+    setStatus(QStringLiteral("Idle"));
+
+    const QString copy = text;
+    QMetaObject::invokeMethod(
+        this,
+        [this, copy]() {
+            if (!m_inserter) {
+                m_lastError = QStringLiteral("Could not insert text (no inserter)");
+                Q_EMIT lastErrorChanged();
+                setStatus(QStringLiteral("Insert failed — transcript: %1").arg(copy));
+                return;
+            }
+            const auto r = m_inserter->insertText(copy);
+            m_inserter->clearPreedit();
+            if (!r.delivered) {
+                m_lastError =
+                    QStringLiteral("Could not insert text (%1)").arg(r.detail);
+                Q_EMIT lastErrorChanged();
+                setStatus(QStringLiteral("Insert failed — transcript: %1").arg(copy));
+                return;
+            }
+            if (r.path == InsertionRouter::Path::Clipboard) {
+                m_lastError.clear();
+                Q_EMIT lastErrorChanged();
+                setStatus(r.detail);
+            }
+        },
+        Qt::QueuedConnection);
+
+    maybeUnloadAfterDrain();
+}
+
 void DictationController::onTextFinalized(const QString &text, int /*eouMask*/)
 {
     if (text.isEmpty() || m_state == State::Idle) {
         return;
     }
+
+    // Gated transform path: show raw ASR as preedit, commit only after stop.
+    if (postProcessActive()) {
+        if (!m_utteranceBuffer.isEmpty() && !m_utteranceBuffer.endsWith(QLatin1Char(' '))) {
+            m_utteranceBuffer += QLatin1Char(' ');
+        }
+        m_utteranceBuffer += text;
+        if (m_inserter) {
+            m_inserter->setPreedit(m_utteranceBuffer);
+        }
+        setStatus(QStringLiteral("Listening (will polish)…"));
+        return;
+    }
+
+    // Verbatim / passthrough: commit each finalized chunk immediately.
     if (!m_inserter) {
         m_lastError = QStringLiteral("Could not insert text (no inserter)");
         Q_EMIT lastErrorChanged();
@@ -406,7 +644,6 @@ void DictationController::onTextFinalized(const QString &text, int /*eouMask*/)
         return;
     }
     if (r.path == InsertionRouter::Path::Clipboard) {
-        // IM failed; clipboard has the text — surface that without Error state.
         m_lastError.clear();
         Q_EMIT lastErrorChanged();
         setStatus(r.detail);
@@ -450,68 +687,71 @@ void DictationController::onSessionFinished(const QString &text, const QString &
 
     stopCaptureOnly();
 
-    if (!error.isEmpty() && text.isEmpty()) {
+    if (!error.isEmpty() && text.isEmpty() && m_utteranceBuffer.isEmpty()) {
+        if (m_inserter) {
+            m_inserter->clearPreedit();
+        }
+        m_utteranceBuffer.clear();
         setError(error);
         maybeUnloadAfterDrain();
         return;
     }
 
-    // Return to Idle *before* inserting text so a new hotkey press is allowed,
-    // and so commit happens outside the worker-reply stack.
-    m_lastError.clear();
-    Q_EMIT lastErrorChanged();
-    setState(State::Idle);
-    setStatus(QStringLiteral("Idle"));
-
+    // Full utterance: streaming buffer + offline/streaming tail from finalize.
+    QString full = m_utteranceBuffer;
     if (!text.isEmpty()) {
-        // Length only in logs; full text stays in UI recovery status on failure.
-        qCInfo(keaLog) << "transcript ready, chars=" << text.size();
-        // Queued so Wayland commit runs on a clean event-loop turn.
-        const QString copy = text;
-        QMetaObject::invokeMethod(
-            this,
-            [this, copy]() {
-                if (!m_inserter) {
-                    m_lastError = QStringLiteral("Could not insert text (no inserter)");
-                    Q_EMIT lastErrorChanged();
-                    setStatus(QStringLiteral("Insert failed — transcript: %1").arg(copy));
-                    return;
-                }
-                const auto r = m_inserter->insertText(copy);
-                m_inserter->clearPreedit();
-                if (!r.delivered) {
-                    m_lastError =
-                        QStringLiteral("Could not insert text (%1)").arg(r.detail);
-                    Q_EMIT lastErrorChanged();
-                    // Keep the transcript visible so the user can recover it.
-                    setStatus(QStringLiteral("Insert failed — transcript: %1")
-                                  .arg(copy));
-                    return;
-                }
-                if (r.path == InsertionRouter::Path::Clipboard) {
-                    m_lastError.clear();
-                    Q_EMIT lastErrorChanged();
-                    setStatus(r.detail);
-                }
-            },
-            Qt::QueuedConnection);
-    } else {
+        if (!full.isEmpty() && !full.endsWith(QLatin1Char(' '))
+            && !text.startsWith(QLatin1Char(' '))) {
+            full += QLatin1Char(' ');
+        }
+        full += text;
+    }
+    full = full.trimmed();
+    m_utteranceBuffer.clear();
+
+    if (full.isEmpty()) {
         qCInfo(keaLog) << "transcript empty";
         if (m_inserter) {
             m_inserter->clearPreedit();
         }
+        m_lastError.clear();
+        Q_EMIT lastErrorChanged();
+        setState(State::Idle);
+        setStatus(QStringLiteral("Idle"));
+        maybeUnloadAfterDrain();
+        return;
     }
 
-    maybeUnloadAfterDrain();
+    qCInfo(keaLog) << "transcript ready, chars=" << full.size()
+                    << "postProcess=" << postProcessActive();
+
+    if (postProcessActive()) {
+        // Keep Draining-like UX until transform completes; stay non-Idle so
+        // start() is ignored while polishing.
+        setStatus(QStringLiteral("Polishing…"));
+        if (m_inserter) {
+            m_inserter->setPreedit(full);
+        }
+        ensureTransformModelLoaded();
+        queueTransform(full);
+        return;
+    }
+
+    m_lastError.clear();
+    Q_EMIT lastErrorChanged();
+    deliverFinalText(full);
 }
 
 void DictationController::cancel()
 {
-    if (m_state == State::Idle) {
+    if (m_state == State::Idle && !m_transformInFlight) {
         return;
     }
     m_stopWhenStarted = false;
     m_startAfterLoad = false;
+    m_utteranceBuffer.clear();
+    m_pendingTransformId = 0;
+    m_transformInFlight = false;
     stopCaptureOnly();
     if (m_inserter) {
         m_inserter->clearPreedit();

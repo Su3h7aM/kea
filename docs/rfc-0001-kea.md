@@ -255,7 +255,7 @@ Bind KWin’s `zwp_input_method_v1`. On activate, own a `zwp_input_method_contex
 ## 7. Build & Packaging
 
 - CMake + ECM, Qt6, KF6 (Kirigami, I18n, CoreAddons, Config, GlobalAccel, StatusNotifierItem, IconThemes, …).
-- parakeet via build-time ExternalProject; `KEA_BUILD_PARAKEET=OFF` for UI-only iteration.
+- parakeet + llama.cpp via build-time ExternalProject (always; required for ASR and post-process).
 - Protocol XML vendored for the KWin input-method interface in use.
 - Package: native distro packages and/or Flatpak/AppImage; AppStream + `.desktop` required. Sandbox needs mic + GPU + input-method-relevant permissions.
 
@@ -282,7 +282,7 @@ Snapshot of the tree relative to the goals above. **Update this section when shi
 | Flatpak/AppImage | Missing |
 | KConfigXT / KCM | Not started (`QSettings` in tree; accepted for first cut) |
 | KeySequenceItem hotkey capture | Present (`org.kde.kquickcontrols.KeySequenceItem`) |
-| LLM transform pipeline | Design only (separate issue) |
+| LLM transform pipeline | Present (llama.cpp + LFM catalog; preedit-gated commit) |
 | Transcript history | Design only (separate issue) |
 
 ---

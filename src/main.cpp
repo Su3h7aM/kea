@@ -83,6 +83,8 @@ int main(int argc, char *argv[])
 
     kea::ModelDownloader downloader;
     kea::ModelCatalog catalog;
+    // LLM post-processing catalog (LFM, …) — separate files + models dir.
+    kea::ModelCatalog *llmCatalog = kea::ModelCatalog::createLlmCatalog();
     kea::Readiness readiness(&settings, &inputMethod, &committer, &dictation);
 
     QObject::connect(&inputMethod, &kea::InputMethod::contextChanged,
@@ -139,6 +141,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("_readiness"), &readiness);
     engine.rootContext()->setContextProperty(QStringLiteral("_downloader"), &downloader);
     engine.rootContext()->setContextProperty(QStringLiteral("_catalog"), &catalog);
+    engine.rootContext()->setContextProperty(QStringLiteral("_llmCatalog"), llmCatalog);
 
     engine.loadFromModule("io.github.su3h7am.kea", "Main");
     if (engine.rootObjects().isEmpty()) {

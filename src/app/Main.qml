@@ -20,9 +20,12 @@ import org.kde.kquickcontrols as KQuickControls
 Kirigami.ApplicationWindow {
     id: root
 
-    width: Kirigami.Units.gridUnit * 34
-    height: Kirigami.Units.gridUnit * 32
+    width: Kirigami.Units.gridUnit * 36
+    height: Kirigami.Units.gridUnit * 40
     title: i18nc("@title:window", "Kea")
+
+    // When set, the next successful download is treated as an LLM GGUF.
+    property string _pendingLlmDownload: ""
 
     // Show settings on first launch so the user can complete onboarding.
     Component.onCompleted: {
@@ -266,9 +269,80 @@ Kirigami.ApplicationWindow {
                 }
             }
 
-            // --- Model catalog / download ---
+            // --- Transcript mode: ASR only vs LLM polish (always visible) ---
             Kirigami.Heading {
-                text: i18nc("@title:group", "Get a model")
+                text: i18nc("@title:group", "Transcript mode")
+                level: 2
+            }
+
+            Kirigami.FormLayout {
+                Layout.fillWidth: true
+                // Editable even while the ASR model is loaded — this only
+                // changes how finished text is committed, not which GGUF is loaded.
+
+                Controls.ComboBox {
+                    id: transcriptModeBox
+                    Kirigami.FormData.label: i18nc("@label", "Mode")
+                    Layout.fillWidth: true
+                    model: [
+                        i18nc("@item", "ASR only (verbatim)"),
+                        i18nc("@item", "Polish with local LLM")
+                    ]
+                    // 0 = post-process off, 1 = on
+                    currentIndex: (_settings && _settings.postProcessEnabled) ? 1 : 0
+                    onActivated: (index) => {
+                        if (_settings)
+                            _settings.postProcessEnabled = (index === 1)
+                    }
+                }
+
+                Controls.ComboBox {
+                    id: styleBox
+                    Kirigami.FormData.label: i18nc("@label", "LLM style")
+                    Layout.fillWidth: true
+                    enabled: _settings && _settings.postProcessEnabled
+                    model: [
+                        i18nc("@item", "Correct (default)"),
+                        i18nc("@item", "Enhance"),
+                        i18nc("@item", "Professional"),
+                        i18nc("@item", "Casual")
+                    ]
+                    currentIndex: _settings ? _settings.postProcessStyle : 0
+                    onActivated: (index) => {
+                        if (_settings)
+                            _settings.postProcessStyle = index
+                    }
+                }
+
+                Controls.Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    opacity: 0.8
+                    text: {
+                        if (!_settings)
+                            return ""
+                        if (!_settings.postProcessEnabled) {
+                            return i18nc("@info",
+                                "Parakeet text is committed as-is (no rewrite).")
+                        }
+                        if (_settings.llmModelFileExists) {
+                            return i18nc("@info",
+                                "After you release the hotkey, the local LLM rewrites " +
+                                "the transcript (style above) before it is inserted. " +
+                                "Model: %1",
+                                _settings.llmModelPath)
+                        }
+                        return i18nc("@info",
+                            "Post-process is on, but no LLM GGUF is available yet. " +
+                            "Download one in “LLM model” below (LFM2.5 230M recommended), " +
+                            "or Kea will fall back to raw ASR text.")
+                    }
+                }
+            }
+
+            // --- ASR model catalog / download ---
+            Kirigami.Heading {
+                text: i18nc("@title:group", "Speech model (Parakeet)")
                 level: 2
             }
 
@@ -484,6 +558,154 @@ Kirigami.ApplicationWindow {
                 }
             }
 
+            // --- LLM model download (only when polish mode is selected) ---
+            Kirigami.Heading {
+                text: i18nc("@title:group", "LLM model (post-process)")
+                level: 2
+                visible: _settings && _settings.postProcessEnabled
+            }
+
+            Kirigami.FormLayout {
+                Layout.fillWidth: true
+                visible: _settings && _settings.postProcessEnabled
+                enabled: !(_downloader && _downloader.busy)
+
+                Controls.ComboBox {
+                    id: llmModelBox
+                    Kirigami.FormData.label: i18nc("@label", "Model")
+                    Layout.fillWidth: true
+                    model: _llmCatalog ? _llmCatalog.models : []
+                    textRole: "name"
+                    Component.onCompleted: selectDefaultLlm()
+                    onCountChanged: {
+                        if (currentIndex < 0)
+                            selectDefaultLlm()
+                    }
+                    onActivated: (index) => refreshLlmQuants(index)
+
+                    function selectDefaultLlm() {
+                        if (!_llmCatalog || !_llmCatalog.models)
+                            return
+                        const models = _llmCatalog.models
+                        const want = _llmCatalog.defaultModelId()
+                        for (let i = 0; i < models.length; ++i) {
+                            if (models[i].id === want) {
+                                currentIndex = i
+                                refreshLlmQuants(i)
+                                return
+                            }
+                        }
+                        if (models.length > 0) {
+                            currentIndex = 0
+                            refreshLlmQuants(0)
+                        }
+                    }
+
+                    function refreshLlmQuants(index) {
+                        if (!_llmCatalog || index < 0 || index >= _llmCatalog.models.length) {
+                            llmQuantBox.model = []
+                            return
+                        }
+                        const mid = _llmCatalog.models[index].id
+                        llmQuantBox.model = _llmCatalog.quantsFor(mid)
+                        const pref = _llmCatalog.preferredQuant(mid)
+                        let qi = 0
+                        if (pref && pref.id) {
+                            for (let i = 0; i < llmQuantBox.model.length; ++i) {
+                                if (llmQuantBox.model[i].id === pref.id) {
+                                    qi = i
+                                    break
+                                }
+                            }
+                        }
+                        llmQuantBox.currentIndex = qi
+                    }
+
+                    function selectedModel() {
+                        if (!_llmCatalog || currentIndex < 0 || currentIndex >= _llmCatalog.models.length)
+                            return null
+                        return _llmCatalog.models[currentIndex]
+                    }
+                }
+
+                Controls.ComboBox {
+                    id: llmQuantBox
+                    Kirigami.FormData.label: i18nc("@label", "Quantization")
+                    Layout.fillWidth: true
+                    model: []
+                    textRole: "display"
+                    function selectedQuant() {
+                        if (currentIndex < 0 || currentIndex >= model.length)
+                            return null
+                        return model[currentIndex]
+                    }
+                }
+
+                Controls.Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    opacity: 0.75
+                    text: {
+                        const m = llmModelBox.selectedModel()
+                        return m ? (m.description || "") : ""
+                    }
+                }
+
+                Controls.Button {
+                    text: {
+                        const m = llmModelBox.selectedModel()
+                        const q = llmQuantBox.selectedQuant()
+                        if (m && q && _llmCatalog && _llmCatalog.isAvailable(m.id, q.id))
+                            return i18nc("@action:button", "Use this LLM")
+                        return i18nc("@action:button", "Download LLM")
+                    }
+                    enabled: {
+                        if (!_downloader || !_llmCatalog)
+                            return false
+                        const m = llmModelBox.selectedModel()
+                        const q = llmQuantBox.selectedQuant()
+                        if (!m || !q)
+                            return false
+                        if (_llmCatalog.isAvailable(m.id, q.id))
+                            return true
+                        return !!q.downloadable
+                    }
+                    onClicked: {
+                        if (!_downloader || !_settings || !_llmCatalog)
+                            return
+                        const m = llmModelBox.selectedModel()
+                        const q = llmQuantBox.selectedQuant()
+                        if (!m || !q)
+                            return
+                        if (_llmCatalog.isAvailable(m.id, q.id)) {
+                            _settings.llmModelPath = _llmCatalog.resolvedPath(m.id, q.id)
+                            return
+                        }
+                        const dest = _llmCatalog.downloadDest(m.id, q.id)
+                        const size = q.sizeBytes ? Number(q.sizeBytes) : 0
+                        const sha = q.sha256 ? String(q.sha256) : ""
+                        // Tag path so onFinished can route to llmModelPath.
+                        _downloader.download(q.url, dest, sha, size)
+                        root._pendingLlmDownload = dest
+                    }
+                }
+            }
+
+            Controls.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.65
+                visible: _settings && _settings.postProcessEnabled
+                text: {
+                    const path = _llmCatalog ? _llmCatalog.userCatalogPath
+                                             : "~/.config/kea/llm_models.json"
+                    return i18nc("@info",
+                        "Custom LLM entries: %1 (same schema; merge by model id). " +
+                        "Files install under ~/.local/share/kea/llm-models/.",
+                        path)
+                }
+            }
+
             Kirigami.InlineMessage {
                 Layout.fillWidth: true
                 visible: _catalog && _catalog.lastError.length > 0
@@ -527,13 +749,13 @@ Kirigami.ApplicationWindow {
                 wrapMode: Text.WordWrap
                 opacity: 0.7
                 text: i18nc("@info",
-                    "Click Start to load the model, then hold the global hotkey " +
+                    "Click Start to load the speech model, then hold the global hotkey " +
                     "(default Ctrl+Shift+D) while a text field is focused to dictate. " +
                     "Release to commit.\n\n" +
-                    "Click Stop to unload the model and change the backend or model file.\n\n" +
-                    "Pick an Active model from the catalog, download one below, or set " +
-                    "KEA_MODEL=/path/to/model.gguf. Offline models buffer until release; " +
-                    "streaming models insert text live.\n\n" +
+                    "Transcript mode: “ASR only” inserts Parakeet text as spoken; " +
+                    "“Polish with local LLM” rewrites it (Correct / Enhance / …) after release.\n\n" +
+                    "Click Stop to unload the speech model and change the backend or model file. " +
+                    "Transcript mode can be changed without unloading.\n\n" +
                     "Only one Wayland input method can own the seat — disable fcitx5/IBus if binding fails.")
             }
         }
@@ -558,6 +780,16 @@ Kirigami.ApplicationWindow {
     Connections {
         target: _downloader
         function onFinished(localPath) {
+            if (root._pendingLlmDownload && localPath === root._pendingLlmDownload) {
+                root._pendingLlmDownload = ""
+                if (_settings)
+                    _settings.llmModelPath = localPath
+                if (_llmCatalog)
+                    _llmCatalog.refreshAvailability()
+                if (llmModelBox.currentIndex >= 0)
+                    llmModelBox.refreshLlmQuants(llmModelBox.currentIndex)
+                return
+            }
             if (_settings)
                 _settings.modelPath = localPath
             if (_catalog)

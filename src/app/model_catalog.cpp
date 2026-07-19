@@ -39,14 +39,49 @@ QByteArray readFileBytes(const QString &path)
 } // namespace
 
 ModelCatalog::ModelCatalog(QObject *parent)
+    : ModelCatalog(QString::fromUtf8(KEA_MODELS_JSON),
+                   QStringLiteral("kea/models.json"),
+                   QStringLiteral("models.json"),
+                   QStringLiteral("models"),
+                   QStringLiteral("tdt-0.6b-v3"),
+                   QStringLiteral("q8_0"),
+                   parent)
+{
+}
+
+ModelCatalog::ModelCatalog(const QString &compileTimeBundledPath,
+                           const QString &installRelativePath,
+                           const QString &userFileName,
+                           const QString &modelsDirName,
+                           const QString &defaultModelId,
+                           const QString &defaultQuantId,
+                           QObject *parent)
     : QObject(parent)
+    , m_bundledCompileTime(compileTimeBundledPath)
+    , m_installRelative(installRelativePath)
+    , m_userCatalogPath(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+                        + QStringLiteral("/kea/") + userFileName)
+    , m_modelsDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+                  + QStringLiteral("/kea/") + modelsDirName)
+    , m_defaultModelId(defaultModelId)
+    , m_defaultQuantId(defaultQuantId)
 {
     reload();
 }
 
-QString ModelCatalog::userCatalogPath() const
+ModelCatalog *ModelCatalog::createLlmCatalog(QObject *parent)
 {
-    return defaultUserCatalogPath();
+#ifndef KEA_LLM_MODELS_JSON
+#define KEA_LLM_MODELS_JSON ""
+#endif
+    return new ModelCatalog(
+        QString::fromUtf8(KEA_LLM_MODELS_JSON),
+        QStringLiteral("kea/llm_models.json"),
+        QStringLiteral("llm_models.json"),
+        QStringLiteral("llm-models"),
+        QStringLiteral("lfm2.5-1.2b-instruct"),
+        QStringLiteral("q4_k_m"),
+        parent);
 }
 
 QString ModelCatalog::defaultUserCatalogPath()
@@ -55,39 +90,46 @@ QString ModelCatalog::defaultUserCatalogPath()
         + QStringLiteral("/kea/models.json");
 }
 
-QString ModelCatalog::bundledCatalogPath()
+QString ModelCatalog::defaultLlmUserCatalogPath()
 {
-    // 1) Compile-time path (dev builds point at the source tree).
-    const QString compileTime = QString::fromUtf8(KEA_MODELS_JSON);
-    if (!compileTime.isEmpty() && QFileInfo::exists(compileTime)) {
-        return compileTime;
-    }
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+        + QStringLiteral("/kea/llm_models.json");
+}
 
-    // 2) Installed XDG data location.
-    const QString located = QStandardPaths::locate(QStandardPaths::GenericDataLocation,
-                                                   QStringLiteral("kea/models.json"));
+QString ModelCatalog::defaultLlmModelsDir()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+        + QStringLiteral("/kea/llm-models");
+}
+
+QString ModelCatalog::locateBundledCatalog(const QString &compileTimePath,
+                                           const QString &installRelative)
+{
+    if (!compileTimePath.isEmpty() && QFileInfo::exists(compileTimePath)) {
+        return compileTimePath;
+    }
+    const QString located =
+        QStandardPaths::locate(QStandardPaths::GenericDataLocation, installRelative);
     if (!located.isEmpty()) {
         return located;
     }
-
-    // 3) Relative to the running binary (prefix-style install).
-    const QString besideApp = QDir(QCoreApplication::applicationDirPath())
-                                  .absoluteFilePath(QStringLiteral("../share/kea/models.json"));
+    const QString besideApp =
+        QDir(QCoreApplication::applicationDirPath())
+            .absoluteFilePath(QStringLiteral("../share/") + installRelative);
     if (QFileInfo::exists(besideApp)) {
         return QFileInfo(besideApp).canonicalFilePath();
     }
-
     return {};
 }
 
 QString ModelCatalog::defaultModelId() const
 {
-    return QStringLiteral("tdt-0.6b-v3");
+    return m_defaultModelId;
 }
 
 QString ModelCatalog::defaultQuantId() const
 {
-    return QStringLiteral("q8_0");
+    return m_defaultQuantId;
 }
 
 QString ModelCatalog::expandUserPath(const QString &path)
@@ -105,7 +147,12 @@ QString ModelCatalog::expandUserPath(const QString &path)
     return trimmed;
 }
 
-QString ModelCatalog::resolveQuantPath(const ModelQuant &q)
+QString ModelCatalog::resolveQuantPath(const ModelQuant &q) const
+{
+    return resolveQuantPath(q, m_modelsDir);
+}
+
+QString ModelCatalog::resolveQuantPath(const ModelQuant &q, const QString &modelsDir)
 {
     if (!q.path.isEmpty()) {
         return expandUserPath(q.path);
@@ -113,7 +160,7 @@ QString ModelCatalog::resolveQuantPath(const ModelQuant &q)
     if (q.filename.isEmpty()) {
         return {};
     }
-    return AppSettings::defaultModelsDir() + QLatin1Char('/') + q.filename;
+    return modelsDir + QLatin1Char('/') + q.filename;
 }
 
 void ModelCatalog::setError(const QString &e)
@@ -130,17 +177,17 @@ void ModelCatalog::reload()
     QVector<ModelEntry> base;
     QString err;
 
-    const QString bundled = bundledCatalogPath();
+    const QString bundled = locateBundledCatalog(m_bundledCompileTime, m_installRelative);
     if (bundled.isEmpty()) {
-        setError(QStringLiteral("bundled models.json not found"));
-        qCWarning(keaLog) << "ModelCatalog: no bundled models.json";
+        setError(QStringLiteral("bundled catalog not found (%1)").arg(m_installRelative));
+        qCWarning(keaLog) << "ModelCatalog: no bundled catalog for" << m_installRelative;
     } else {
         const QByteArray bytes = readFileBytes(bundled);
         if (bytes.isEmpty()) {
-            setError(QStringLiteral("cannot read bundled models.json: %1").arg(bundled));
+            setError(QStringLiteral("cannot read bundled catalog: %1").arg(bundled));
             qCWarning(keaLog) << "ModelCatalog: cannot read" << bundled;
         } else if (!parseCatalogJson(bytes, &base, &err)) {
-            setError(QStringLiteral("bundled models.json: %1").arg(err));
+            setError(QStringLiteral("bundled catalog: %1").arg(err));
             qCWarning(keaLog) << "ModelCatalog: parse failed for" << bundled << err;
             base.clear();
         } else {
@@ -149,7 +196,7 @@ void ModelCatalog::reload()
     }
 
     QVector<ModelEntry> user;
-    const QString userPath = defaultUserCatalogPath();
+    const QString userPath = m_userCatalogPath;
     if (QFileInfo::exists(userPath)) {
         const QByteArray bytes = readFileBytes(userPath);
         if (bytes.isEmpty()) {
@@ -220,7 +267,7 @@ QVariantMap ModelCatalog::quantToVariant(const ModelQuant &q) const
     m.insert(QStringLiteral("sha256"), q.sha256);
     m.insert(QStringLiteral("recommended"), q.recommended);
     m.insert(QStringLiteral("downloadable"), !q.url.isEmpty());
-    const QString resolved = resolveQuantPath(q);
+    const QString resolved = resolveQuantPath(q, m_modelsDir);
     m.insert(QStringLiteral("resolvedPath"), resolved);
     m.insert(QStringLiteral("available"),
              !resolved.isEmpty() && QFileInfo::exists(resolved) && QFileInfo(resolved).isFile());
@@ -362,7 +409,7 @@ QString ModelCatalog::downloadDest(const QString &modelId, const QString &quantI
     if (q->filename.isEmpty()) {
         return {};
     }
-    return AppSettings::defaultModelsDir() + QLatin1Char('/') + q->filename;
+    return m_modelsDir + QLatin1Char('/') + q->filename;
 }
 
 QVariantList ModelCatalog::availableSelections() const
